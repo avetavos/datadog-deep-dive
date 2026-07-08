@@ -1,0 +1,130 @@
+---
+title: 'Monitor Types and Thresholds'
+description: 'How Datadog Monitors evaluate a query and alert, focused on the metric alert: the critical/warning trigger thresholds, the separate recovery thresholds that prevent flapping, and evaluation_delay.'
+sidebar:
+  order: 1
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The idea in one sentence
+
+A Datadog **Monitor** is a saved query plus a set of rules for turning that query's result into a state — OK, Warn, Alert, or No Data — and among the many monitor types, the **metric alert** is the clearest place to learn how thresholds actually work.
+
+## Many monitor types, one mental model
+
+Datadog ships quite a few monitor types: **metric alert** (a query against any metric), **log alert** (a query against log events matching a search), **APM/trace-analytics alert** (a query against span or trace data), **composite** (combines other monitors with boolean logic), **synthetics alert** (watches a Synthetic test's pass/fail history), **SLO alert** (watches an SLO's error budget), and a handful of others like process checks and Watchdog anomaly alerts.
+
+All of them plug into the same underlying alerting and notification machinery — the same idea of states, thresholds, and messages. What differs is only where the data comes from. This lesson (and the rest of this module) uses the **metric alert** as the concrete example, because its threshold configuration is the shape every other monitor type reuses in spirit.
+
+## Anatomy of a metric alert's thresholds
+
+A metric alert's query already contains a comparison, and `options.thresholds` mirrors and extends it:
+
+```json
+{
+  "name": "High CPU usage on payments-api",
+  "type": "metric alert",
+  "query": "avg(last_5m):avg:system.cpu.user{service:payments-api} > 90",
+  "options": {
+    "thresholds": {
+      "critical": 90,
+      "warning": 80,
+      "critical_recovery": 70,
+      "warning_recovery": 50
+    }
+  }
+}
+```
+
+- **`critical`** — crossing this value moves the monitor into the Alert state. It normally matches the comparison already written into the `query` string.
+- **`warning`** — an earlier, lower-severity line. Crossing it moves the monitor into the Warn state, which is useful for surfacing something drifting in the wrong direction before it becomes a page.
+
+Both `critical` and `warning` are **trigger** thresholds — they answer "when do we consider this a problem."
+
+## Recovery thresholds: a different pair of numbers on purpose
+
+`critical_recovery` and `warning_recovery` are separate fields, and they answer a different question: "when do we consider this problem *over*." If you don't set them, Datadog defaults them to the same value as the trigger thresholds, but most teams override them deliberately.
+
+Here's why the gap matters. If the recovery threshold were equal to the trigger threshold, a metric oscillating right at 90 would alert, recover, alert, recover, over and over — this is called **flapping**, and it's one of the fastest ways to make an on-call team stop trusting (and start ignoring) their pages.
+
+Setting `critical_recovery` meaningfully below `critical` — 70 instead of 90 — creates a dead zone. Once the monitor has fired, the metric has to drop noticeably further before Datadog considers it actually resolved. A value bouncing between 88 and 92 stays in the Alert state the whole time, instead of flapping in and out of it.
+
+## `evaluation_delay`: don't alert on data that hasn't fully arrived
+
+Some metrics arrive with a lag — cost/billing metrics and anything aggregated from a slow upstream pipeline are common examples. Without accounting for that lag, a monitor's evaluation window can look artificially low or incomplete, and it can trigger (or flap) on data that simply hasn't finished arriving yet.
+
+`evaluation_delay` shifts the point in time the query is evaluated against, in seconds:
+
+```json
+{
+  "options": {
+    "evaluation_delay": 300
+  }
+}
+```
+
+With `evaluation_delay: 300`, the monitor evaluates its window five minutes later than it otherwise would, giving late-arriving data time to show up before a decision is made.
+
+<Mermaid title="Metric alert state transitions" code={thresholdDiagramEn} />
+
+export const thresholdDiagramEn = `flowchart LR
+  OK -->|value crosses warning e.g. 80| WARN[Warn]
+  WARN -->|value crosses critical e.g. 90| ALERT[Alert]
+  OK -->|value crosses critical directly| ALERT
+  ALERT -->|value drops below critical_recovery e.g. 70| WARN
+  WARN -->|value drops below warning_recovery e.g. 50| OK`
+
+<Callout title="The one-line takeaway">
+`critical` and `warning` decide when a metric alert triggers, `critical_recovery` and `warning_recovery` are separate fields that decide only when it goes back to OK — keeping a gap between them prevents flapping, and `evaluation_delay` protects the monitor from judging data that hasn't fully arrived yet.
+</Callout>
+
+export const quizMonitorThresholdsEn = [
+  {
+    q: 'In a Datadog metric alert, what is the relationship between the `critical` threshold and the `critical_recovery` threshold?',
+    options: [
+      'They must always be equal for the monitor to work',
+      '`critical` decides when the monitor enters the Alert state, `critical_recovery` decides only when it returns to OK',
+      '`critical_recovery` is evaluated before `critical` in the query',
+      '`critical_recovery` sets the retention period for alert history',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'Why do teams typically set `critical_recovery` below `critical` instead of equal to it?',
+    options: [
+      'To make the monitor evaluate faster',
+      'To reduce the number of metric points required for evaluation',
+      'To create a gap that prevents flapping when the metric hovers right at the critical threshold',
+      'Because Datadog requires recovery thresholds to differ from trigger thresholds',
+    ],
+    answer: 2,
+  },
+  {
+    q: 'What does `evaluation_delay` do?',
+    options: [
+      'Delays sending notifications after a monitor has already triggered',
+      'Delays the point in time the query is evaluated against, to avoid alerting on data that has not fully arrived yet',
+      'Sets how long a Downtime mutes a monitor',
+      'Controls how often the monitor re-checks its query',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'Which of these is true about the many Datadog monitor types (metric alert, log alert, composite, synthetics alert, SLO alert, etc.)?',
+    options: [
+      'Each type has its own separate notification and escalation system',
+      'They all share the same underlying alerting/notification machinery; only the data source differs',
+      'Only metric alerts support thresholds',
+      'Composite monitors cannot send notifications',
+    ],
+    answer: 1,
+  },
+]
+
+<Quiz client:visible id="monitors-alerting-and-slos/monitor-types-and-thresholds" questions={quizMonitorThresholdsEn} />
+
+<ProgressTracker client:visible id="monitors-alerting-and-slos/monitor-types-and-thresholds" />

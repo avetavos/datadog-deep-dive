@@ -1,0 +1,158 @@
+---
+title: 'SLOs, Error Budgets, and Burn Rate Alerts'
+description: 'The three Datadog SLO types (metric-based, monitor-based, time slice), what an error budget is, and the precise difference between error budget alerts and burn rate alerts.'
+sidebar:
+  order: 3
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The idea in one sentence
+
+A Datadog **SLO** turns a target like "99.9% good over 30 days" into a trackable **error budget**, and Datadog gives you two different kinds of SLO alert because "how much budget is gone" and "how fast it's going" are two different problems.
+
+## Three ways to define an SLO
+
+**Metric-based** — a ratio of two metric queries, good events over total events:
+
+```json
+{
+  "name": "Checkout API availability",
+  "type": "metric",
+  "query": {
+    "numerator": "sum:trace.http.request.hits{service:checkout-api,!http.status_code:5*}.as_count()",
+    "denominator": "sum:trace.http.request.hits{service:checkout-api}.as_count()"
+  }
+}
+```
+
+**Monitor-based** — built from the uptime history of one or more existing monitors. The SLO's "good" time is however much of the window those monitors spent *not* triggered:
+
+```json
+{
+  "name": "Checkout API monitor-based SLO",
+  "type": "monitor",
+  "monitor_ids": [111111, 222222]
+}
+```
+
+**Time Slice** — evaluates a query per fixed time slice across the window, for example "was p99 latency under 300ms in each 5-minute slice":
+
+```json
+{
+  "name": "Checkout API p99 latency SLO",
+  "type": "time_slice",
+  "sli_specification": {
+    "time_slice": {
+      "query": {
+        "formula": "query1",
+        "queries": ["p99:trace.http.request.duration{service:checkout-api}"]
+      },
+      "comparator": "<",
+      "threshold": 300,
+      "query_interval_seconds": 300
+    }
+  }
+}
+```
+
+## The error budget
+
+A target like 99.9% over a 30-day window implies an allowed amount of "bad" time or events — that allowance is the **error budget**.
+
+```text
+Target: 99.9% over 30d
+30d = 43200 minutes
+Allowed bad time (error budget) = 0.1% x 43200 = 43.2 minutes
+```
+
+Every bad event or minute of bad time consumes part of that 43.2-minute budget. Once the budget hits 0%, the window has already fallen below its 99.9% target.
+
+## Error budget alerts vs. burn rate alerts
+
+This is the distinction that matters most in this lesson, and Datadog gives you two separate SLO alert types for it.
+
+**Error budget alert** — threshold-based on the cumulative percentage of the budget consumed so far in the window. For example, alert once 75% of the budget is gone, and optionally warn earlier at 50%:
+
+```json
+{
+  "type": "slo alert",
+  "query": "error_budget(\"<slo_id>\").over(\"30d\") > 75",
+  "message": "@slack-checkout-oncall 75% of the 30d error budget for checkout-api is already consumed."
+}
+```
+
+**Burn rate alert** — notifies when the *rate* of error-budget consumption exceeds a threshold and stays sustained over a period:
+
+```json
+{
+  "type": "slo alert",
+  "query": "burn_rate(\"<slo_id>\").over(\"1h\").long_window(\"6h\") > 10",
+  "message": "@pagerduty-checkout-critical Burn rate is 10x normal - at this rate the entire 30d budget is gone in about 3 days."
+}
+```
+
+The two solve different problems. An error budget alert tells you "we're running out" — it's about the total consumed so far, useful for deciding whether it's safe to ship a risky change this week. A burn rate alert tells you "we're running out **fast, right now**" — it's about velocity, not total. A sustained fast burn can exhaust an entire 30-day budget in hours, and a burn rate alert catches that within the first hour, well before the cumulative-consumption threshold that an error budget alert watches would ever cross.
+
+<Mermaid title="Error budget alert vs. burn rate alert" code={errorBudgetDiagramEn} />
+
+export const errorBudgetDiagramEn = `flowchart LR
+  SLO[SLO target 99.9% over 30d] --> Budget[Error budget]
+  Budget --> EBA{Error budget alert: percent consumed above threshold}
+  Budget --> BRA{Burn rate alert: consumption rate above threshold, sustained}
+  EBA -->|e.g. 75 percent consumed| Notify1[Notify: budget running out]
+  BRA -->|e.g. 10x burn rate for 1h| Notify2[Notify: fast incident right now]`
+
+<Callout title="The one-line takeaway">
+An **error budget alert** is threshold-based on the cumulative percentage of the error budget consumed so far in the window and tells you "we're running out," while a **burn rate alert** watches the sustained rate of consumption and tells you "we're running out fast, right now" — catching a fast-moving incident long before the cumulative alert would ever fire.
+</Callout>
+
+export const quizSlosErrorBudgetsEn = [
+  {
+    q: 'What does a Metric-based SLO measure?',
+    options: [
+      'The uptime history of a single existing monitor',
+      'A ratio between two metric queries, e.g. good events over total events',
+      'Whether a query stayed under a threshold in every fixed time slice',
+      'The number of Synthetic test locations that passed',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'A Time Slice SLO checking "was p99 latency under 300ms in each 5-minute window" evaluates its condition',
+    options: [
+      'Once at the end of the full 30d window',
+      'Continuously in real time with no fixed boundaries',
+      'Per fixed time slice across the window, e.g. once per 5-minute slice',
+      'Only when a related monitor is in the Alert state',
+    ],
+    answer: 2,
+  },
+  {
+    q: 'An SLO alert configured to notify when 75% of the 30d error budget has been consumed is an example of',
+    options: [
+      'A burn rate alert',
+      'An error budget alert',
+      'A composite monitor',
+      'A Time Slice SLO',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'Why can a burn rate alert catch an incident earlier than an error budget alert would?',
+    options: [
+      'Burn rate alerts always use a shorter measurement window than error budget alerts',
+      'Burn rate alerts measure how fast the budget is being consumed, so a sustained fast burn triggers it well before the cumulative consumed percentage crosses the error budget alert threshold',
+      'Burn rate alerts do not depend on the SLO at all',
+      'Error budget alerts only run once every 30 days',
+    ],
+    answer: 1,
+  },
+]
+
+<Quiz client:visible id="monitors-alerting-and-slos/slos-error-budgets-and-burn-rate-alerts" questions={quizSlosErrorBudgetsEn} />
+
+<ProgressTracker client:visible id="monitors-alerting-and-slos/slos-error-budgets-and-burn-rate-alerts" />

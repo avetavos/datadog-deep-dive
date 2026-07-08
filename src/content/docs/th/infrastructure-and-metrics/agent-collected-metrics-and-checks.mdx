@@ -1,0 +1,103 @@
+---
+title: 'Agent-Collected Metrics และ Checks'
+description: 'Agent เก็บ system metrics พื้นฐานแบบอัตโนมัติได้อย่างไร และ integration check ส่ง metric ผ่าน check API ด้วย gauge, count, rate, histogram อย่างไร'
+sidebar:
+  order: 1
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ใจความสำคัญในหนึ่งประโยค
+
+metric ทุกตัวที่ขึ้นบน host ใน Datadog มาจากสองทาง คือ core check ของ Agent ที่เก็บอัตโนมัติ หรือ integration check ที่เรียก check API method ชุดหนึ่งตาม collection interval คงที่
+
+## Built-in system metrics
+
+ทันทีที่ Agent start มันจะรัน **core check** กลุ่มหนึ่งโดยไม่ต้อง config อะไรเลย เช่น `cpu`, `memory`, `disk`, `network`, `io` และอื่น ๆ อีกไม่กี่ตัว สิ่งเหล่านี้คือที่มาของ metric ที่เห็นบน host dashboard ทันทีโดยไม่ต้องติดตั้งอะไรเพิ่ม เช่น `system.cpu.user`, `system.cpu.system`, `system.mem.used`, `system.mem.free`, `system.disk.used`, `system.net.bytes_rcvd` เป็นต้น นี่คือเหตุผลที่ Agent ที่เพิ่งติดตั้งใหม่มี data ไหลเข้ามาแล้วก่อนที่จะไป config integration ตัวไหนเลยด้วยซ้ำ — ภาพรวมระดับ host มีให้อยู่แล้วเสมอ
+
+นอกจาก core check แล้ว Agent ยังมาพร้อม **integration** ต่าง ๆ ซึ่งเป็น Python check เฉพาะเทคโนโลยี เช่น `postgres`, `redis`, `nginx`, `kafka` และอีกหลายร้อยตัว integration check จะ active ก็ต่อเมื่อมี config file ให้มัน (ปกติอยู่ที่ `conf.d/<integration>.d/conf.yaml`) แล้ว Agent detect เจอ config นั้นในรอบ check ถัดไป การเปิด integration `postgres` เป็นตัวอย่าง คือสิ่งที่ทำให้ metric อย่าง `postgresql.connections` หรือ `postgresql.rows_returned` เริ่มปรากฏขึ้นมา — ไม่มี auto-discovery ว่า "มี postgres รันอยู่ตรงนี้" ถ้าไม่มี config นั้น
+
+## Check API: gauge, count, rate, histogram
+
+check ทุกตัวไม่ว่าจะ built-in หรือ integration คือ Python class เล็ก ๆ ที่รันตาม schedule แล้วเรียก method บน `self` เพื่อส่งค่า นี่คือสี่ verb เดียวกันที่จะเจออีกครั้งใน DogStatsD บทถัดไป
+
+```python
+from datadog_checks.base import AgentCheck
+
+class MyServiceCheck(AgentCheck):
+    def check(self, instance):
+        # a point-in-time value, e.g. current connection count
+        self.gauge('myservice.connections.active', 42, tags=['env:prod'])
+
+        # an incrementing counter since the last check run
+        self.count('myservice.requests.total', 137, tags=['env:prod'])
+
+        # count normalized to "per second" by the Agent
+        self.rate('myservice.errors.rate', 3, tags=['env:prod'])
+
+        # distribution of a value observed during this check run
+        self.histogram('myservice.query.duration', 0.045, tags=['env:prod'])
+```
+
+- **`gauge`** — รายงานค่า ณ ขณะนั้น เหมือนเข็มวัดน้ำมัน สนใจแค่ค่าล่าสุดใน interval นั้น
+- **`count`** — รายงานจำนวนดิบที่เกิดขึ้นระหว่างรอบ check นั้น Agent ไม่หารด้วยเวลาให้ ส่งเป็น count ตรง ๆ
+- **`rate`** — คล้าย `count` แต่ Agent หารด้วยเวลาที่ผ่านไประหว่างรอบ run ให้ metric มาถึง Datadog แบบ normalize เป็น per-second แล้ว
+- **`histogram`** — รายงาน distribution ของค่าที่เห็นระหว่างรอบ check หนึ่งครั้ง ซึ่ง Agent จะ aggregate แบบ client-side ออกมาเป็น derived metric หลายตัว (average, max, percentile, count) — พฤติกรรม aggregate แบบ client-side นี้จะเจอซ้ำอีกครั้งใน DogStatsD histogram
+
+## Collection interval ประมาณ 15 วินาที
+
+โดย default check ทุกตัวที่ Agent รันจะถูก schedule ที่ **collection interval 15 วินาที** — Agent ปลุก check ขึ้นมา มันเรียก `self.gauge(...)` / `self.count(...)` ฯลฯ ตามที่สังเกตเห็นตั้งแต่รอบก่อนหน้า แล้ว Agent flush ค่านั้นขึ้นไปข้างบน interval นี้ config ได้ต่อ check (`min_collection_interval` ใน config ของ check นั้น) แต่ 15 วินาทีคือค่า default ที่ควรสมมติไว้ถ้า config ไม่ได้บอกไว้เป็นอย่างอื่น เรื่องนี้สำคัญโดยเฉพาะกับ `rate` และ `count` เพราะตัวเลขที่ method สองตัวนี้คำนวณหรือรายงานมีความหมายในบริบท "ตั้งแต่ collection interval รอบก่อน" เท่านั้น การเปลี่ยน interval จึงเปลี่ยนวิธีตีความค่าพวกนั้น ไม่ใช่แค่ความถี่ที่มันมาถึง
+
+<Mermaid title="Where a host's metrics come from" code={agentChecksDiagramTh} />
+
+export const agentChecksDiagramTh = `flowchart LR
+  A[Agent process] -->|runs every ~15s| B[Core checks: cpu, memory, disk, network]
+  A -->|runs every ~15s| C[Integration checks: postgres, redis, nginx, ...]
+  B -->|self.gauge / self.rate| D[system.* metrics]
+  C -->|self.gauge / self.count / self.rate / self.histogram| E[integration.* metrics]
+  D --> F[Datadog backend]
+  E --> F`
+
+<Callout title="The one-line takeaway">
+metric ระดับ host มาจาก **core check** ของ Agent ที่ทำงานอัตโนมัติ ส่วน metric เฉพาะ integration มาจาก **check** ที่เปิดผ่าน config file และทั้งสองส่งค่าผ่าน check API สี่ verb เดียวกันคือ `gauge`, `count`, `rate`, `histogram` ตาม collection interval default ประมาณ **15 วินาที**
+</Callout>
+
+export const quizAgentChecksTh = [
+  {
+    q: 'ควรใช้ metric type แบบไหนใน check เพื่อรายงานจำนวน active connection ปัจจุบัน',
+    options: ['count', 'rate', 'gauge', 'histogram'],
+    answer: 2,
+  },
+  {
+    q: 'collection interval default ของ Agent check คือเท่าไร',
+    options: ['1 วินาที', 'ประมาณ 15 วินาที', '60 วินาที', '5 นาที'],
+    answer: 1,
+  },
+  {
+    q: 'ทำไม metric อย่าง `postgresql.connections` ถึงไม่ปรากฏอัตโนมัติบนทุก host',
+    options: [
+      'ต้องใช้ Datadog plan แบบเสียเงินเท่านั้น',
+      'จะปรากฏก็ต่อเมื่อ config integration check postgres บน host นั้นแล้ว',
+      'เป็น metric ที่มาจาก DogStatsD เท่านั้น',
+      'ต้องเปิด APM tracing ก่อนถึงจะใช้ได้',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'ความแตกต่างหลักระหว่าง `self.count(...)` กับ `self.rate(...)` ใน check คืออะไร',
+    options: [
+      '`count` ใช้ได้แค่ integer ส่วน `rate` ใช้ได้แค่ float',
+      '`rate` หารค่าด้วยเวลาที่ผ่านไปเพื่อได้ค่าต่อวินาที ส่วน `count` รายงานจำนวนดิบ',
+      'ทั้งสองเป็น alias ของกันและกันแบบเป๊ะ ๆ',
+      '`rate` ใช้ได้เฉพาะใน DogStatsD ไม่ใช่ใน check',
+    ],
+    answer: 1,
+  },
+]
+
+<Quiz client:visible id="infrastructure-and-metrics/agent-collected-metrics-and-checks" questions={quizAgentChecksTh} />
+
+<ProgressTracker client:visible id="infrastructure-and-metrics/agent-collected-metrics-and-checks" />

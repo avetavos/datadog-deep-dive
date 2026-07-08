@@ -1,0 +1,32 @@
+---
+title: 'Datadog — From Zero to Hero'
+description: 'A developer-focused, zero-to-hero course on Datadog — the Agent and integrations, unified service tagging, custom metrics, log management, APM, correlating signals, monitors and SLOs, and production Datadog with Terraform.'
+sidebar:
+  order: 1
+---
+
+import Callout from '../../../../components/Callout.astro';
+
+**Datadog** is a unified observability SaaS platform: a lightweight **Agent** that runs next to your infrastructure and application, plus a family of products built on the telemetry it (and your instrumented code) sends — **Infrastructure Monitoring**, **Log Management**, **APM** (distributed tracing), **Monitors & SLOs**, and a **Software Catalog** that maps every one of those signals back to a specific service and its owner. This course is written **for developers and SREs** — the people who configure the Agent, write the tagging, tune the sampling, and get paged when a monitor fires.
+
+Two facts many existing tutorials get wrong or skip entirely, because Datadog's model here has more layers than it first appears: **log ingestion and log indexing are two separate steps** — you can send every log to a low-cost Archive while only a filtered subset is actually indexed and billed for search, and you can still generate metrics from logs that were never indexed at all. And **"trace sampling" is really two independent controls** — ingestion-time sampling (how many spans reach Datadog) and server-side retention filters (which ingested traces stay searchable) — with trace-derived metrics unaffected by either one. This course teaches both pipelines accurately and distinctly, along with the tagging convention — unified service tagging — that ties metrics, logs, and traces back to one service.
+
+## What this course covers
+
+| Module | You will learn |
+| --- | --- |
+| **Foundations** | What Datadog is, the Agent and integrations, unified service tagging, a tour of the UI |
+| **Infrastructure & Metrics** | Agent-collected metrics, custom metrics via DogStatsD, Metrics without Limits, dashboards |
+| **Log Management** | Collection and processing pipelines, indexes vs. exclusion filters, log-based metrics, archives |
+| **APM & Distributed Tracing** | Traces, spans and the service map, ingestion vs. retention sampling, trace metrics, profiling |
+| **Correlating Logs, Traces & Metrics** | Trace-log injection, unified service tagging in practice, the Service Catalog, RUM context |
+| **Monitors, Alerting & SLOs** | Monitor types and thresholds, composite monitors, SLO error budgets and burn rates, Synthetics |
+| **Production & Ecosystem** | Datadog as code with Terraform, cost governance, security basics, a production rollout checklist |
+
+## How to read it
+
+Each lesson opens with the idea in one sentence, shows real Agent config, DogStatsD/API calls, and CLI or Terraform snippets, has a diagram of the moving parts, and ends with a one-line takeaway plus a short quiz. Work top to bottom — later modules assume the tagging, pipeline, and sampling vocabulary from these first lessons.
+
+<Callout title="The one-line takeaway">
+Datadog is **the Agent, plus a family of products built on the same tagged telemetry** — metrics, logs, and traces are separate pipelines, each with its own ingestion, retention, and cost controls, and **unified service tagging** (`env`, `service`, `version`) is what lets one deployable unit's data stay correlated across all three. This course teaches each pipeline's real mechanics and the correlation model that connects them, starting from the Agent itself.
+</Callout>

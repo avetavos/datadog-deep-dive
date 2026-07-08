@@ -1,0 +1,118 @@
+---
+title: 'Log Collection and Processing Pipelines'
+description: 'Agent เก็บ log เข้า Datadog ยังไงผ่าน logs: config block และ Processing Pipeline parse/enrich log ทุกตัวที่ match หลัง intake ยังไง'
+sidebar:
+  order: 1
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ไอเดียหลักในหนึ่งประโยค
+
+log จะเข้า Datadog ได้เพราะ Agent ถูกบอกผ่าน `logs:` config block ว่าอ่านจากไหน แล้วติด label `service`/`source` อะไร และพอ log มาถึง **Processing Pipeline** จะ parse กับ enrich log แต่ละตัวก่อนที่มันจะไปถึง index
+
+## บอก Agent ว่าให้มองที่ไหน
+
+Agent ไม่ได้ไปตามหา log เองลอย ๆ — ทุก log source ต้องระบุชัดเจน คุณเพิ่ม `logs:` block เข้าไป โดยปกติจะอยู่ใน conf.d integration config หรือ logs config ของ Agent เอง แล้วบอกว่า source เป็นประเภทไหน, path (หรือ port สำหรับ `tcp`) อยู่ที่ไหน และ label สองตัวที่สำคัญมากในขั้นตอนถัดไป คือ `service` กับ `source`
+
+```yaml
+logs:
+  - type: file
+    path: /my/app/file.log
+    service: payments-api
+    source: java
+```
+
+- **`type`** — Agent อ่าน log แบบไหน `file` คือ tail ไฟล์บน disk ส่วนค่าที่ใช้บ่อยอื่น ๆ คือ `tcp`, `udp` และ `docker` สำหรับเก็บ log จาก container
+- **`path`** — log อยู่ที่ไหน สำหรับ type `file` เป็น path ของไฟล์ตรง ๆ ไม่ใช่ query
+- **`service`** — ชื่อ service ที่สร้าง log นี้ขึ้นมา เป็น tag `service` ตัวเดียวกับที่ใช้ทุกที่ใน Datadog (metric, trace) ซึ่งเป็นตัวที่ทำให้ log line, trace และ metric ผูกกลับไปหา deployable unit เดียวกันได้
+- **`source`** — เป็น technology identifier ไม่ใช่ label แบบข้อความอิสระ การตั้ง `source: java` (หรือ `nginx`, `postgresql` ฯลฯ) จะบอก Datadog ว่าให้แนบ **pipeline ที่ built-in เฉพาะ source นั้น** ให้อัตโนมัติ เพราะ Datadog มี Grok parsing rule สำเร็จรูปให้ framework/service ยอดนิยมหลายสิบตัว
+
+พอ Agent อ่าน config นี้ในรอบ reload ถัดไป มันจะเริ่ม tail `/my/app/file.log` แล้วส่งแต่ละบรรทัดไปที่ intake ของ Datadog พร้อม tag `service:payments-api` และ `source:java`
+
+## Processing Pipeline: parse และ enrich หลัง intake
+
+**Processing Pipeline** คือ list ของ **processor** ที่เรียงลำดับไว้ รันกับ log ทุกตัวที่มาถึง intake และ match query `filter` ของ pipeline นั้น ขั้นตอนนี้เกิด*หลัง*จาก log ออกจาก host มาถึง Datadog แล้ว และ*ก่อน*ที่มันจะถูกเขียนลง index ไหน ๆ — หน้าที่ของมันคือ parse ข้อความที่ไม่มีโครงสร้างให้เป็น attribute ที่มีโครงสร้าง แล้ว enrich log เท่านั้น ไม่ใช่การตัดสินว่า log จะถูกเก็บไว้หรือไม่
+
+pipeline ถูก scope ด้วย filter เช่น `service:my-service` เพื่อให้มีแค่ log จาก service หรือ source ที่ตั้งใจไว้เท่านั้นที่ผ่านเข้ามา คุณมี pipeline หลายตัวทำงานพร้อมกันได้ แต่ละตัว scope ไปคนละ `service` หรือ `source` รวมถึง pipeline built-in ที่ `source: java`, `source: nginx` ฯลฯ แนบให้อัตโนมัติด้วย
+
+processor ที่พบบ่อยใน pipeline เรียงตามลำดับที่รัน:
+
+- **Grok Parser** — apply Grok pattern กับ raw log message เพื่อดึง attribute ที่มีโครงสร้างออกจากข้อความที่ไม่มีโครงสร้าง เช่น ดึง `duration`, `http.status_code`, หรือ `user.id` ออกจากบรรทัดที่เดิมเป็น string ยาว ๆ ก้อนเดียว
+- **Date Remapper** — บอก Datadog ว่า attribute ไหนที่ parse ออกมาแล้วคือ timestamp ทางการของ log นี้ (แทนที่จะ fallback ไปใช้เวลา intake) ซึ่งสำคัญกับการวาง log ให้ถูกตำแหน่งบน timeline
+- **Status Remapper** — map attribute ที่ parse ออกมา (เช่น field ข้อความที่มีคำว่า `ERROR` หรือ `WARN`) เข้ากับ field `status` (severity) มาตรฐานของ Datadog เพื่อให้ view และ facet ที่อิงตาม severity ทำงานสอดคล้องกันทุก service
+
+```text
+Pipeline: "payments-api logs"
+filter: service:payments-api
+
+1. Grok Parser    -> extract duration, http.status_code, user.id from message
+2. Date Remapper  -> use parsed `timestamp` attribute as the log's official time
+3. Status Remapper -> map parsed `level` attribute to Datadog's status field
+```
+
+<Mermaid title="From Agent config to a parsed log" code={pipelineFlowDiagramTh} />
+
+export const pipelineFlowDiagramTh = `flowchart LR
+  A["logs: block in Agent config\\ntype/path/service/source"] --> B[Agent tails the file]
+  B --> C[Intake]
+  C --> D{Pipeline filter matches?}
+  D -->|yes| E[Grok Parser]
+  E --> F[Date Remapper]
+  F --> G[Status Remapper]
+  G --> H["Parsed, enriched log\\n(not yet indexed)"]
+  D -->|no match| H`
+
+<Callout title="The one-line takeaway">
+`logs:` config block ของ Agent (`type`, `path`, `service`, `source`) คือตัวที่ทำให้ log ถูกเก็บได้ตั้งแต่แรก และ **Processing Pipeline** — ชุด processor ที่เรียงลำดับและ scope ด้วย `filter` อย่าง Grok Parser, Date Remapper, Status Remapper — parse และ enrich log ทุกตัวที่ match หลัง intake ก่อนถึง index มันไม่ได้ตัดสินว่าอะไรจะถูกเก็บไว้
+</Callout>
+
+export const quizLogCollectionPipelinesTh = [
+  {
+    q: 'ใน Agent `logs:` block ที่มี `type: file` field `path` ระบุอะไร',
+    options: [
+      'Grok pattern ที่จะ apply',
+      'ไฟล์บน disk ที่ Agent ต้อง tail',
+      'ชื่อของ processing pipeline',
+      'index ที่ log ควรถูกเขียนลงไป',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'การตั้ง `source: java` ใน logs config หลัก ๆ แล้วทำอะไร',
+    options: [
+      'ลบ log line ที่ไม่ใช่ Java ก่อนออกจาก host',
+      'ตั้งค่า retention period ของ log',
+      'แนบ pipeline built-in เฉพาะ source สำหรับ log ของ Java ให้อัตโนมัติ',
+      'เข้ารหัส log ระหว่างส่ง',
+    ],
+    answer: 2,
+  },
+  {
+    q: 'query `filter` ของ Processing Pipeline (เช่น `service:my-service`) ควบคุมอะไร',
+    options: [
+      'log ไหนถูก drop ถาวรและไม่ถูกคิดเงินเลย',
+      'log ไหนจาก intake ที่ถูก scope เข้า pipeline นั้นเพื่อ parse และ enrich',
+      'log ที่ match ถูกเก็บใน index กี่วัน',
+      'host ไหนรัน Agent',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'Processing Pipeline parse เกิดขึ้นตรงไหนเทียบกับการ indexing',
+    options: [
+      'หลังจาก log ถูกเขียนลง index แล้ว',
+      'บน host เอง ก่อนที่ log จะออกไปผ่าน Agent',
+      'หลัง intake และก่อนที่ log จะไปถึง index',
+      'pipeline กับ indexing เกิดที่ขั้นตอนเดียวกัน ไม่มีลำดับตายตัว',
+    ],
+    answer: 2,
+  },
+]
+
+<Quiz client:visible id="log-management/log-collection-and-processing-pipelines" questions={quizLogCollectionPipelinesTh} />
+
+<ProgressTracker client:visible id="log-management/log-collection-and-processing-pipelines" />

@@ -1,0 +1,121 @@
+---
+title: 'Structured Logging and Log Facets'
+description: 'ทำไม JSON/structured log ทำให้ดึง attribute เชื่อถือได้กว่า attribute กลายเป็น Facet ใน Logs Explorer ยังไง และทำไม Log Analytics aggregation ต้องการ log ที่ index แล้ว'
+sidebar:
+  order: 4
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ไอเดียหลักในหนึ่งประโยค
+
+structured log (JSON) ทำให้ Processing Pipeline ดึง attribute แบบมี type ได้เชื่อถือได้ แทนที่จะพึ่ง Grok parsing ของข้อความอิสระที่เปราะบาง และ attribute พวกนั้นกลายเป็น **Facet** ที่ filter, group และ aggregate ได้ใน Logs Explorer — แต่ทำได้เฉพาะ log ที่เข้า index จริง ๆ เท่านั้น
+
+## ทำไม structure ดีกว่า Grok บนข้อความอิสระ
+
+Grok Parser ดึง attribute ออกจากบรรทัดที่ไม่มีโครงสร้างแบบ `2024-01-15 ERROR user=42 duration=812ms checkout failed` ได้ แต่ pattern ทุกตัวคือการเดิมพันว่า log จะคงรูปแบบนั้นเป๊ะ ๆ ตลอด แค่เพิ่มคำ, สลับตำแหน่ง field หรือมี service หนึ่งที่ log ต่างจากอีก service เล็กน้อย Grok pattern ก็หยุด match แบบเงียบ ๆ — หรือแย่กว่านั้นคือ match ผิด
+
+structured log หลบปัญหานี้ไปเลย เพราะ field มีชื่อและ type อยู่แล้วก่อนที่ Datadog จะเห็นมันด้วยซ้ำ:
+
+```json
+{
+  "timestamp": "2024-01-15T10:22:31Z",
+  "level": "error",
+  "service": "checkout-api",
+  "user": { "id": 42 },
+  "duration_ms": 812,
+  "message": "checkout failed"
+}
+```
+
+ตรงนี้ Processing Pipeline ไม่ต้องใช้ Grok Parser เลยสำหรับ field ที่เป็น key ที่มีชื่ออยู่แล้ว — `level`, `service`, `user.id`, `duration_ms` มาเป็น attribute แบบมี type ให้อัตโนมัติ Grok ยังมีประโยชน์กับส่วนของ message ที่ยังเป็นข้อความอิสระอยู่ (field `message` เอง หรือ log จากระบบที่คุณคุม format ไม่ได้) แต่เส้นทางที่เชื่อถือได้สำหรับอะไรก็ตามที่คุณคุมได้ คือ log เป็น JSON ตั้งแต่แรก
+
+## attribute กลายเป็น Facet
+
+พอ log มี attribute ที่มีโครงสร้างแล้ว — ไม่ว่าจะดึงมาด้วย Grok หรือเป็น JSON field แต่แรก — Datadog แปลง attribute นั้นให้เป็น **Facet** ได้ คือ field ที่ Logs Explorer มองว่า filter, group และ chart ได้ เหมือนกับที่เว็บไซต์ทั่วไป facet ผลการค้นหา การ facet บน `status_code` ทำให้ filter เป็น `status_code:500` ได้ หรือ group ผลค้นหาตาม `status_code` เพื่อดู breakdown ส่วนการ facet บน `service` ทำให้แบ่ง query ไหนก็ได้ตาม service ที่สร้าง log แต่ละตัว
+
+structure ที่สอดคล้องกันข้าม service คือสิ่งที่ทำให้ facet มีประโยชน์จริงในระดับ organization ถ้า service หนึ่งเรียกมันว่า `status_code` อีกตัวเรียก `httpStatus` และอีกตัวฝังไว้ในข้อความที่ไม่ได้ parse คุณ facet ข้ามทั้งสามตัวให้สอดคล้องกันไม่ได้ นี่คือเหตุผลที่การ remap สำคัญ ในการทำให้ log มีรูปร่างสอดคล้องกัน:
+
+- **Status Remapper** — map field severity ที่แต่ละ service เรียกไม่เหมือนกัน (`level`, `severity`, `log.level`, ...) เข้ากับ facet `status` มาตรฐานของ Datadog เพื่อให้ "ขอดู error ทั้งหมดจากทุก service" เป็น query เดียว แทนที่จะเป็น query ละ service
+- **Message Remapper** — กำหนดว่า attribute ไหนคือ message หลักที่มนุษย์อ่านได้ของ log เพื่อให้ Logs Explorer แสดงคอลัมน์ message ที่สมเหตุสมผล ไม่ว่า service ต้นทางจะเรียก field นั้นว่าอะไร
+
+## Log Analytics เห็นเฉพาะ log ที่ index แล้ว
+
+นี่คือประเด็นที่ผูกกลับไปหาบทที่แล้วโดยตรง **Log Analytics** — การ breakdown แบบ group-by, computed measure และ aggregation อื่น ๆ บน facet — ทำงานได้เฉพาะกับ log ที่ถูก index จริง ๆ เท่านั้น Exclusion Filter ที่กัน log `level:debug` ไม่ให้เข้า index ไม่ได้แค่ซ่อนมันจากการค้นหาตรง ๆ เท่านั้น แต่ยังหมายความว่า log พวกนั้นปรากฏใน Log Analytics aggregation ไหนไม่ได้เลย เพราะไม่มีอะไรถูก index ให้ aggregate
+
+ถ้าต้องการ slice-and-dice field บน log ที่ปกติถูก Exclusion Filter drop ทิ้ง คุณมีสามทางเลือกเดียวกับที่บทก่อนให้ไว้แล้ว มาใช้กับความต้องการนี้โดยเฉพาะ:
+
+1. ปิด Exclusion Filter ชั่วคราวหรือทำให้แคบลง เพื่อให้ log ที่ต้องวิเคราะห์ถูก index จริง
+2. generate log-based metric แทน — COUNT หรือ DISTRIBUTION ที่คำนวณจาก ingest stream เต็ม ๆ ให้ trend ได้โดยไม่ต้อง index log เลย
+3. Rehydrate ช่วงเวลาที่เกี่ยวข้องจาก Log Archive เข้า temporary index รันการวิเคราะห์ แล้วปล่อยให้ temporary index หมดอายุไป
+
+```text
+Want to group-by @http.status_code on logs currently excluded by level:debug filter?
+-> Option 1: relax the Exclusion Filter (costs indexing $$, gets full Log Analytics)
+-> Option 2: log-based metric on @http.status_code (cheap, but only pre-defined aggregations)
+-> Option 3: Rehydrate the time range (temporary cost, full Log Analytics for that window)
+```
+
+<Mermaid title="From structured field to facet to analytics" code={facetsDiagramTh} />
+
+export const facetsDiagramTh = `flowchart LR
+  A["JSON log\\nlevel, service, duration_ms"] --> B[Processing Pipeline\\nStatus Remapper, Message Remapper]
+  B --> C[Typed attributes]
+  C --> D[Facets in Logs Explorer\\nfilter / group / chart]
+  D --> E{Log actually indexed?}
+  E -->|yes| F[Log Analytics: group-by,\\ncomputed measures work]
+  E -->|no, excluded| G[No Log Analytics\\nuse log-based metric or Rehydration]`
+
+<Callout title="The one-line takeaway">
+structured log (JSON) ทำให้การดึง attribute เชื่อถือได้แทนที่จะเปราะบางแบบ Grok, attribute ที่สอดคล้องกัน (ผ่าน Status Remapper, Message Remapper และเพื่อน ๆ) กลายเป็น **Facet** ที่ filter และ group ได้ และ **Log Analytics aggregation ทำงานได้เฉพาะกับ log ที่ index แล้ว** — ดังนั้น field ที่ถูก Exclusion Filter ซ่อนไว้ ต้องการ filter ที่ผ่อนลง, log-based metric หรือ Rehydration ก่อนที่จะ group-by บนมันได้
+</Callout>
+
+export const quizStructuredLoggingFacetsTh = [
+  {
+    q: 'ทำไม JSON field ที่เป็น native ถึงเชื่อถือได้กว่า field ที่ Grok parse จากข้อความอิสระ',
+    options: [
+      'JSON log มีขนาดเล็กกว่าเสมอ',
+      'field มีชื่อและ type อยู่แล้วก่อนที่ Datadog จะเห็น จึงไม่ขึ้นกับ pattern ที่ต้อง match รูปแบบข้อความเป๊ะ ๆ',
+      'Grok Parser รันกับ JSON log ไม่ได้เลย',
+      'JSON log ข้าม Processing Pipeline ไปเลย',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'Facet ใน Logs Explorer คืออะไร',
+    options: [
+      'log line ดิบที่ยังไม่ได้ parse',
+      'field ที่มาจาก attribute ของ log ที่ filter, group และ chart ได้',
+      'คำพ้องกับ Log Archive',
+      'processing rule ประเภทหนึ่งของ Agent',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'Status Remapper ทำอะไรให้กับหลาย service พร้อมกัน',
+    options: [
+      'ลบ log ที่ severity ต่ำกว่าค่าที่กำหนด',
+      'map ชื่อ field severity ของแต่ละ service เข้ากับ facet status มาตรฐานของ Datadog เพื่อให้ query error ทำงานสอดคล้องกันข้าม service',
+      'เปลี่ยน retention_days ของ index',
+      'แปลง log เป็น JSON ให้อัตโนมัติ',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'field หนึ่งถูก exclude จาก index ด้วย Exclusion Filter Log Analytics group-by บน field นั้นจะเป็นยังไง',
+    options: [
+      'ยังทำงานปกติเพราะ Log Analytics อ่านจาก ingest stream เต็ม ๆ',
+      'ใช้ไม่ได้กับ log พวกนั้น เพราะ Log Analytics aggregation ทำงานได้เฉพาะกับ log ที่ index แล้ว',
+      'fallback ไปใช้ log-based metric อัตโนมัติโดยไม่ต้องแก้อะไร',
+      'มีผลแค่กับ DISTRIBUTION metric เท่านั้น ไม่กระทบ group-by',
+    ],
+    answer: 1,
+  },
+]
+
+<Quiz client:visible id="log-management/structured-logging-and-log-facets" questions={quizStructuredLoggingFacetsTh} />
+
+<ProgressTracker client:visible id="log-management/structured-logging-and-log-facets" />

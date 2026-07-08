@@ -1,0 +1,60 @@
+---
+title: Datadog — From Zero to Hero
+description: เชี่ยวชาญ Datadog ตั้งแต่พื้นฐาน — Agent กับ integration, unified service tagging, custom metrics กับ dashboard, log management ด้วย index กับ exclusion filter, APM กับ distributed tracing, การ correlate logs/traces/metrics ต่อ service, monitor กับ SLO และการรัน Datadog บน production ด้วย Terraform
+template: splash
+hero:
+  tagline: คอร์สแบบ standalone เน้น developer ว่าด้วย Datadog แพลตฟอร์ม observability แบบรวมศูนย์ ตั้งแต่ Agent กับ unified service tagging ไปจนถึง metrics, log management, APM และโมเดล correlation ที่ผูกทุกอย่างเข้าเป็นมุมมองเดียวต่อ service สอนผ่าน Agent config, DogStatsD และ Terraform จริง รายละเอียดที่ซับซ้อนหลายชั้น (ingestion sampling เทียบกับ retention filter, exclusion filter เทียบกับ archive) ถูก verify กับ docs ปัจจุบันแล้ว
+  actions:
+    - text: เริ่มที่นี่
+      link: /datadog/th/foundations/
+      icon: right-arrow
+      variant: primary
+    - text: ข้ามไปที่การ correlate signal
+      link: /datadog/th/correlating-signals/connecting-logs-and-traces/
+      icon: open-book
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## สิ่งที่คุณจะได้เรียน
+
+<CardGrid>
+  <Card title="Foundations" icon="rocket">
+    Datadog คืออะไร, Agent กับ integration, unified service tagging และทัวร์ UI [เริ่ม →](/datadog/th/foundations/)
+  </Card>
+  <Card title="Infrastructure & Metrics" icon="seti:html">
+    metric ที่ Agent เก็บ, custom metric ผ่าน DogStatsD, Metrics without Limits และ dashboard [วัดผล →](/datadog/th/infrastructure-and-metrics/agent-collected-metrics-and-checks/)
+  </Card>
+  <Card title="Log Management" icon="approve-check">
+    pipeline การเก็บกับประมวลผล log, index เทียบกับ exclusion filter, log-based metric และ archive [เก็บ log →](/datadog/th/log-management/log-collection-and-processing-pipelines/)
+  </Card>
+  <Card title="APM & Distributed Tracing" icon="random">
+    trace, span กับ service map, ingestion sampling เทียบกับ retention filter, trace metric และ profiling [trace →](/datadog/th/apm-and-distributed-tracing/traces-spans-and-the-service-map/)
+  </Card>
+  <Card title="Correlating Logs, Traces & Metrics" icon="seti:config">
+    การ inject trace เข้า log, unified service tagging ในทางปฏิบัติ, Service Catalog และ context จาก RUM [เชื่อมโยง →](/datadog/th/correlating-signals/connecting-logs-and-traces/)
+  </Card>
+  <Card title="Monitors, Alerting & SLOs" icon="seti:plan">
+    ประเภท monitor กับ threshold, composite monitor, SLO error budget กับ burn rate และ Synthetics [แจ้งเตือน →](/datadog/th/monitors-alerting-and-slos/monitor-types-and-thresholds/)
+  </Card>
+  <Card title="Production & Ecosystem" icon="puzzle">
+    Datadog as code ด้วย Terraform, cost governance, พื้นฐาน security และ checklist ก่อนขึ้น production [ขึ้น production →](/datadog/th/production-and-ecosystem/datadog-as-code-with-terraform/)
+  </Card>
+</CardGrid>
+
+## คอร์สนี้ทำงานยังไง
+
+<CardGrid>
+  <Card title="pipeline หลายชั้น ไม่ใช่ปุ่มเดียว" icon="rocket">
+    metric, log และ trace คือ pipeline แยกจากกัน แต่ละอันมี ingestion, retention และ cost control เป็นของตัวเอง คอร์สนี้สอนทุกชั้นแทนที่จะมองว่า "sampling" หรือ "retention" เป็นแค่ setting เดียว
+  </Card>
+  <Card title="พฤติกรรมปัจจุบัน ที่ verify แล้ว" icon="random">
+    เขียนตามพฤติกรรมปัจจุบันของ Datadog และตรวจสอบกับ official docs ผ่าน context7 — รวมถึงการแยก log ingestion ออกจาก indexing และความต่างระหว่าง ingestion sampling กับ retention filter ของ APM ที่ tutorial หลายที่มักรวมเป็นเรื่องเดียว
+  </Card>
+  <Card title="tag ชุดเดียว สาม pipeline" icon="approve-check">
+    ไม่ใช่แค่ "ใส่ tag บ้าง" แต่เป็นภาพรวมทั้งหมด — `env`/`service`/`version` หรือ unified service tagging ทำให้คุณสลับไปดู metric, trace และ log ของ service เดียวกันได้ แทนที่จะไล่หาใน 3 เครื่องมือที่ไม่เชื่อมกัน
+  </Card>
+  <Card title="ไดอะแกรมที่อธิบายได้" icon="puzzle">
+    เส้นทางข้อมูลของ Agent, log pipeline ตั้งแต่ intake ถึง index, การแยก ingestion/retention filter ของ APM และโมเดล error budget ของ SLO เป็นไดอะแกรม Mermaid ที่รองรับธีม สองภาษา (English / ไทย) พร้อมบันทึกความคืบหน้า quiz
+  </Card>
+</CardGrid>

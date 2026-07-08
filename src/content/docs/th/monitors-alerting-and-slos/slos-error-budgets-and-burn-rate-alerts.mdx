@@ -1,0 +1,158 @@
+---
+title: 'SLO, Error Budget และ Burn Rate Alert'
+description: 'SLO สามแบบของ Datadog (metric-based, monitor-based, time slice) error budget คืออะไร และความต่างที่ชัดเจนระหว่าง error budget alert กับ burn rate alert'
+sidebar:
+  order: 3
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ไอเดียหลักในหนึ่งประโยค
+
+Datadog **SLO** แปลง target แบบ "99.9% ดีตลอด 30 วัน" ให้กลายเป็น **error budget** ที่ track ได้ และ Datadog มี SLO alert สองแบบที่ต่างกันเพราะ "budget เหลือเท่าไหร่" กับ "กำลังหมดเร็วแค่ไหน" คือคนละปัญหากัน
+
+## SLO สามแบบ
+
+**Metric-based** — อัตราส่วนระหว่าง metric query สองตัว good event หารด้วย total event
+
+```json
+{
+  "name": "Checkout API availability",
+  "type": "metric",
+  "query": {
+    "numerator": "sum:trace.http.request.hits{service:checkout-api,!http.status_code:5*}.as_count()",
+    "denominator": "sum:trace.http.request.hits{service:checkout-api}.as_count()"
+  }
+}
+```
+
+**Monitor-based** — สร้างจาก uptime history ของ monitor ที่มีอยู่แล้วหนึ่งตัวหรือมากกว่า เวลา "ดี" ของ SLO คือช่วงที่ monitor พวกนั้น *ไม่ได้* trigger
+
+```json
+{
+  "name": "Checkout API monitor-based SLO",
+  "type": "monitor",
+  "monitor_ids": [111111, 222222]
+}
+```
+
+**Time Slice** — ประเมิน query ทีละ time slice ขนาดคงที่ทั่วทั้ง window เช่น "p99 latency ต่ำกว่า 300ms ในทุก slice ขนาด 5 นาทีหรือไม่"
+
+```json
+{
+  "name": "Checkout API p99 latency SLO",
+  "type": "time_slice",
+  "sli_specification": {
+    "time_slice": {
+      "query": {
+        "formula": "query1",
+        "queries": ["p99:trace.http.request.duration{service:checkout-api}"]
+      },
+      "comparator": "<",
+      "threshold": 300,
+      "query_interval_seconds": 300
+    }
+  }
+}
+```
+
+## Error budget คืออะไร
+
+target แบบ 99.9% ตลอด window 30 วัน มีนัยว่ายอมให้เวลาหรือ event ที่ "แย่" ได้จำนวนหนึ่ง — ส่วนที่ยอมได้นั้นคือ **error budget**
+
+```text
+Target: 99.9% over 30d
+30d = 43200 minutes
+Allowed bad time (error budget) = 0.1% x 43200 = 43.2 minutes
+```
+
+ทุก event ที่แย่หรือทุกนาทีที่แย่กิน budget 43.2 นาทีนั้นไปทีละส่วน พอ budget เหลือ 0% window นั้นก็ตกต่ำกว่า target 99.9% ไปแล้ว
+
+## Error budget alert เทียบกับ burn rate alert
+
+นี่คือความต่างที่สำคัญที่สุดในบทเรียนนี้ และ Datadog มี SLO alert สองแบบแยกกันสำหรับเรื่องนี้
+
+**Error budget alert** — ใช้ threshold บนเปอร์เซ็นต์สะสมของ budget ที่ถูกใช้ไปแล้วใน window เช่น alert ตอน budget ถูกใช้ไป 75% และตั้ง warn เร็วกว่านั้นที่ 50% ก็ได้
+
+```json
+{
+  "type": "slo alert",
+  "query": "error_budget(\"<slo_id>\").over(\"30d\") > 75",
+  "message": "@slack-checkout-oncall 75% of the 30d error budget for checkout-api is already consumed."
+}
+```
+
+**Burn rate alert** — notify เมื่อ *อัตรา* การใช้ error budget เกิน threshold และค้างอยู่ต่อเนื่องตลอดช่วงเวลาหนึ่ง
+
+```json
+{
+  "type": "slo alert",
+  "query": "burn_rate(\"<slo_id>\").over(\"1h\").long_window(\"6h\") > 10",
+  "message": "@pagerduty-checkout-critical Burn rate is 10x normal - at this rate the entire 30d budget is gone in about 3 days."
+}
+```
+
+สองแบบนี้แก้คนละปัญหากัน error budget alert บอกว่า "budget กำลังจะหมด" — มันดูที่ยอดสะสมที่ใช้ไปแล้ว เหมาะกับการตัดสินใจว่าสัปดาห์นี้ ship ของที่มีความเสี่ยงได้ปลอดภัยไหม ส่วน burn rate alert บอกว่า "budget กำลังจะหมด **เร็วมาก ตอนนี้เลย**" — มันดูที่ความเร็ว ไม่ใช่ยอดรวม incident ที่ burn เร็วต่อเนื่องสามารถเผา budget 30 วันทั้งก้อนหมดได้ในไม่กี่ชั่วโมง และ burn rate alert จับสัญญาณนั้นได้ตั้งแต่ชั่วโมงแรก ก่อนที่ threshold แบบสะสมของ error budget alert จะข้ามไปด้วยซ้ำ
+
+<Mermaid title="Error budget alert vs. burn rate alert" code={errorBudgetDiagramTh} />
+
+export const errorBudgetDiagramTh = `flowchart LR
+  SLO[SLO target 99.9% over 30d] --> Budget[Error budget]
+  Budget --> EBA{Error budget alert: percent consumed above threshold}
+  Budget --> BRA{Burn rate alert: consumption rate above threshold, sustained}
+  EBA -->|e.g. 75 percent consumed| Notify1[Notify: budget running out]
+  BRA -->|e.g. 10x burn rate for 1h| Notify2[Notify: fast incident right now]`
+
+<Callout title="The one-line takeaway">
+**Error budget alert** ใช้ threshold บนเปอร์เซ็นต์สะสมของ error budget ที่ใช้ไปแล้วใน window บอกว่า "budget กำลังจะหมด" ส่วน **burn rate alert** ดูอัตราการใช้ที่ค้างอยู่ต่อเนื่อง บอกว่า "budget กำลังจะหมดเร็วมาก ตอนนี้เลย" — จับ incident ที่เคลื่อนไหวเร็วได้ก่อนที่ alert แบบสะสมจะ fire เสียอีก
+</Callout>
+
+export const quizSlosErrorBudgetsTh = [
+  {
+    q: 'Metric-based SLO วัดอะไร',
+    options: [
+      'uptime history ของ monitor ที่มีอยู่แล้วตัวเดียว',
+      'อัตราส่วนระหว่าง metric query สองตัว เช่น good event หารด้วย total event',
+      'query อยู่ต่ำกว่า threshold ในทุก time slice ขนาดคงที่หรือไม่',
+      'จำนวน location ของ Synthetic test ที่ผ่าน',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'Time Slice SLO ที่เช็คว่า "p99 latency ต่ำกว่า 300ms ในทุก window 5 นาที" ประเมินเงื่อนไขของมันอย่างไร',
+    options: [
+      'ประเมินครั้งเดียวตอนจบ window 30 วันทั้งหมด',
+      'ประเมินต่อเนื่องแบบ real time ไม่มีขอบเขตตายตัว',
+      'ประเมินทีละ time slice ขนาดคงที่ทั่ว window เช่น ครั้งละ slice ขนาด 5 นาที',
+      'ประเมินเฉพาะตอนที่ monitor ที่เกี่ยวข้องอยู่ใน Alert state',
+    ],
+    answer: 2,
+  },
+  {
+    q: 'SLO alert ที่ตั้งให้ notify เมื่อ error budget 30 วันถูกใช้ไป 75% คือตัวอย่างของ',
+    options: [
+      'burn rate alert',
+      'error budget alert',
+      'composite monitor',
+      'Time Slice SLO',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'ทำไม burn rate alert ถึงจับ incident ได้เร็วกว่า error budget alert',
+    options: [
+      'burn rate alert ใช้ measurement window สั้นกว่า error budget alert เสมอ',
+      'burn rate alert วัดว่า budget ถูกใช้เร็วแค่ไหน ทำให้ burn ที่เร็วและค้างต่อเนื่อง trigger ได้ก่อนที่เปอร์เซ็นต์สะสมจะข้าม threshold ของ error budget alert',
+      'burn rate alert ไม่ได้ผูกกับ SLO เลย',
+      'error budget alert รันแค่ครั้งเดียวทุก 30 วัน',
+    ],
+    answer: 1,
+  },
+]
+
+<Quiz client:visible id="monitors-alerting-and-slos/slos-error-budgets-and-burn-rate-alerts" questions={quizSlosErrorBudgetsTh} />
+
+<ProgressTracker client:visible id="monitors-alerting-and-slos/slos-error-budgets-and-burn-rate-alerts" />

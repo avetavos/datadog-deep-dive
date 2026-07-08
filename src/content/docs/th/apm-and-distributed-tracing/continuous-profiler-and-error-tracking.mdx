@@ -1,0 +1,120 @@
+---
+title: 'Continuous Profiler และ Error Tracking'
+description: 'เครื่องมือ debug production สองตัวที่ต่อยอดจาก tracing — code-level profiling ที่ always-on tied กับ span กับการ dedup error อัตโนมัติเป็น issue ที่ track ได้'
+sidebar:
+  order: 4
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ไอเดียหลักในหนึ่งประโยค
+
+tracing บอกคุณว่า**ตรงไหน**ที่ช้าหรือ fail — service ไหน, span ไหน — ส่วน **Continuous Profiler** กับ **Error Tracking** บอกคุณว่า**ทำไม** ลงลึกถึงฟังก์ชันที่กิน CPU หรือ root cause ที่ถูก dedup มาจากกอง stack trace ที่ซ้ำกัน
+
+## Continuous Profiler: code-level visibility ที่ always-on
+
+Continuous Profiler รันตลอดเวลาบน production ด้วย overhead ต่ำ เก็บ **CPU time, wall-time และ allocation** ระดับโค้ด — ฟังก์ชันและ call stack แต่ละตัว ไม่ใช่แค่ aggregate ระดับ service เพราะมัน always-on แทนที่จะเป็นอะไรที่คุณเปิดทีหลังตอน investigate incident ข้อมูลจึงพร้อมอยู่แล้วตั้งแต่ก่อนคุณต้องการมันด้วยซ้ำ
+
+profiler ผูก sample ของมันกลับไปหา service, endpoint และแม้แต่ trace ที่มันเกิดขึ้นด้วย ความเชื่อมโยงนี้เองที่ทำให้มันมีประโยชน์ตอน debug request ที่ช้า — แทนที่จะเดาว่าส่วนไหนของ `checkout-web` ที่แพง คุณกระโดดจาก trace ที่ช้าตรงเข้าไปหา flame graph ว่าฟังก์ชันไหนกำลังรันอยู่และนานแค่ไหนระหว่าง request นั้น
+
+```python
+# ddtrace's profiler starts alongside the tracer — no separate instrumentation needed
+from ddtrace.profiling import Profiler
+
+prof = Profiler()
+prof.start()
+```
+
+พอทั้ง tracer และ profiler รันพร้อมกัน span ที่ช้าใน trace หนึ่งจะพาคุณตรงไปที่ flame graph ระดับฟังก์ชันของช่วงเวลานั้นพอดี — tracing จำกัดให้เหลือ *span ไหน* profiler จำกัดให้เหลือ *บรรทัดโค้ดไหน*
+
+## Error Tracking: เปลี่ยน stack trace ที่ซ้ำกันให้เป็น issue เดียว
+
+Error Tracking เอา error event ที่มาจาก trace และ log แล้ว **group กับ dedup** error ที่คล้ายกันให้เป็น **issue** เดียวอัตโนมัติ แทนที่จะปล่อยให้คุณต้องมาสังเกตเองว่า `NullPointerException` ตัวเดิมเกิดขึ้นไปแล้ว 482 ครั้งตลอดหนึ่งสัปดาห์ของ trace แต่ละ issue มี lifecycle ที่คุณจัดการได้ชัดเจน — ปกติคือ **new**, **triaged** และ **resolved** — error ที่เกิดซ้ำ ๆ จึงกลายเป็นสิ่งเดียวที่ทีมของคุณ track จนปิดได้ แทนที่จะเป็น event หลายร้อยตัวที่ดูเหมือนไม่เกี่ยวกันเลย
+
+```json
+{
+  "issue": {
+    "fingerprint": "NullPointerException@checkout.apply_discount",
+    "status": "new",
+    "occurrences": 482,
+    "first_seen": "2026-07-01T10:03:00Z",
+    "last_seen": "2026-07-08T09:12:00Z",
+    "example_trace_ids": ["6141ee2f9a4d4b2e8f3c1a90", "9af23cd1b8e7f4a6c2d5e901"]
+  }
+}
+```
+
+สังเกต field `example_trace_ids` — Error Tracking เก็บ link กลับไปหา example trace จริงของ issue นั้นไว้ด้วย คุณจึงกระโดดจาก "issue นี้เกิดไปแล้ว 482 ครั้ง" ตรงเข้าไปหา occurrence จริงหนึ่งตัวเพื่อดู context ของ request รอบ ๆ มันได้
+
+## จาก "ตรงไหน" ไปสู่ "ทำไม"
+
+เอาสองเครื่องมือนี้มารวมกันแล้วมันปิดช่องว่างที่ tracing เพียงอย่างเดียวทิ้งไว้
+
+- **Tracing** — service ไหนและ span ไหนที่ช้าหรือ fail
+- **Continuous Profiler** — ฟังก์ชันไหนระดับโค้ดที่กิน CPU/wall-time/allocation ระหว่าง span ที่ช้านั้น
+- **Error Tracking** — span ที่ fail นั้นอยู่ใน issue ที่ dedup แล้วอันไหน และ issue นั้นอยู่ที่จุดไหนใน lifecycle new/triaged/resolved
+
+ไม่มีเครื่องมือไหนแทนที่ tracing ทั้งคู่เริ่มจาก trace หรือ span แล้วลงลึกไปอีกระดับกว่าที่ "service ไหน" จะพาไปถึงได้
+
+<Mermaid title="From where to why" code={profilerErrorTrackingDiagramTh} />
+
+export const profilerErrorTrackingDiagramTh = `flowchart LR
+  Trace[Slow or failing trace] --> Where[Tracing: which service, which span]
+  Where --> Profiler[Continuous Profiler: which function, CPU/wall-time/allocations]
+  Where --> ErrorTracking[Error Tracking: deduplicated issue, new/triaged/resolved]
+  Profiler --> WhySlow[Why it is slow]
+  ErrorTracking --> WhyFailing[Why it is failing]`
+
+<Callout title="The one-line takeaway">
+tracing จำกัดปัญหาให้เหลือ**service และ span ไหน** จากนั้น **Continuous Profiler** ที่ always-on จำกัดต่อให้เหลือ**ฟังก์ชันไหน**ที่กิน CPU/wall-time/allocation และ **Error Tracking** group ความล้มเหลวที่เกิดซ้ำเป็น **issue** เดียวอัตโนมัติพร้อม lifecycle new/triaged/resolved — รวมกันแล้วพาคุณจาก *ตรงไหน* ไปสู่ *ทำไม*
+</Callout>
+
+export const quizProfilerErrorTrackingTh = [
+  {
+    q: 'Continuous Profiler เพิ่มอะไรเข้ามาเหนือกว่าที่ tracing แสดงให้เห็นอยู่แล้ว',
+    options: [
+      'รายชื่อ host ที่มีอยู่ใน infrastructure',
+      'visibility ระดับโค้ดของ CPU/wall-time/allocation ที่ผูกกลับไปหา service, endpoint และ trace ที่เจาะจง',
+      'ตัวแทน Service Map',
+      'sampling rate ที่ตั้งไว้บน tracer',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'Error Tracking ทำอะไรกับ error ตัวเดิม 482 occurrence ที่กระจายอยู่ในหลาย trace',
+    options: [
+      'สร้าง alert แยก 482 อัน',
+      'ไม่สนใจ duplicate เลย',
+      'group และ dedup อัตโนมัติให้เป็น issue เดียวที่มี lifecycle ให้จัดการ (เช่น new/triaged/resolved)',
+      'ลบทุก occurrence ทิ้งยกเว้นตัวล่าสุด',
+    ],
+    answer: 2,
+  },
+  {
+    q: 'ทำไม Continuous Profiler ถึงถูกเรียกว่า "always-on" แทนที่จะเป็นอะไรที่เปิดใช้ตอน incident',
+    options: [
+      'เพราะมัน sample แค่ตอน deploy',
+      'เพราะมันรันตลอดเวลาด้วย overhead ต่ำ ข้อมูลระดับโค้ดจึงพร้อมอยู่แล้วตั้งแต่ก่อนต้อง investigate request ที่ช้า',
+      'เพราะมันแทนที่ความจำเป็นของ tracing ไปเลย',
+      'เพราะมันมีให้ใช้แค่ใน tier เสริมแบบเสียเงินโดยไม่คิด runtime cost',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'สรุปเป็นประโยคเดียว tracing กับสองเครื่องมือนี้แบ่งหน้าที่กันยังไง',
+    options: [
+      'tracing บอกทำไม profiler/Error Tracking บอกตรงไหน',
+      'tracing บอกตรงไหน (service/span) ส่วน profiler กับ Error Tracking บอกทำไม (บรรทัดโค้ด / root cause ที่ dedup แล้ว)',
+      'ทั้งหมดทำสิ่งเดียวกันเป๊ะเพื่อความ redundant',
+      'tracing กับ Error Tracking คือ feature เดียวกันแค่คนละชื่อ',
+    ],
+    answer: 1,
+  },
+]
+
+<Quiz client:visible id="apm-and-distributed-tracing/continuous-profiler-and-error-tracking" questions={quizProfilerErrorTrackingTh} />
+
+<ProgressTracker client:visible id="apm-and-distributed-tracing/continuous-profiler-and-error-tracking" />

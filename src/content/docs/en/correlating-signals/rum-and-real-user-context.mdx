@@ -1,0 +1,109 @@
+---
+title: 'RUM and Real User Context'
+description: 'A light introduction to Real User Monitoring - sessions, views, actions, and errors captured from an actual browser or mobile SDK - and how RUM propagates trace context into backend requests, extending correlation one hop past the backend trace.'
+sidebar:
+  order: 4
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The idea in one sentence
+
+RUM captures what a real visitor actually did in their browser or app as structured events, and when it propagates trace context into the backend calls that visitor triggers, it extends the correlation story one hop past the backend trace, out to the human who caused it.
+
+## What RUM actually captures
+
+**Real User Monitoring (RUM)** runs as an SDK inside the browser or mobile app itself, not on your servers. As a real visitor interacts with the page or app, it emits a small set of structured event types:
+
+- **session** — one visit, start to finish
+- **view** — a page (or a screen, on mobile) the user landed on
+- **action** — a click, a tap, a form submission
+- **error** — a JS exception or a failed resource load, captured client-side
+
+This is a different vantage point than synthetic monitoring (a scripted browser pretending to be a user on a schedule, covered elsewhere in this course). RUM is the actual browser of an actual visitor, in real time, so it reflects real network conditions, real devices, and the real paths users take through the product — not one script's idealized path.
+
+## From a click to a backend trace
+
+On its own, a RUM action or view is frontend-only — it tells you a user clicked "Pay now," not what happened on the server afterward. The correlation payoff is that when the RUM SDK is configured to trace a specific set of backend URLs, it attaches the same kind of trace context header a backend tracer looks for onto the outgoing XHR/fetch call, so the backend service's span, once created, links back to that exact RUM view/action.
+
+```javascript
+window.DD_RUM.init({
+  applicationId: '<RUM_APP_ID>',
+  clientToken: '<RUM_CLIENT_TOKEN>',
+  service: 'checkout-web',
+  allowedTracingUrls: [
+    (url) => url.startsWith('https://api.example.com')
+  ]
+});
+```
+
+`allowedTracingUrls` is the allowlist that tells the RUM SDK which backend calls are safe and expected to receive injected trace headers — only calls to your own backend, not to third-party services.
+
+## One request, traced all the way to the person
+
+A backend trace alone answers "which spans, across which services, handled this request" — that is the whole story the APM module told. RUM extends the same `trace_id` idea one hop further, out past the edge of your infrastructure, so the same identifier that ties spans together across services also ties back to a RUM view/session — answering "which real user, on which page, clicked what, that caused this trace to exist in the first place." This lesson stays intentionally light — RUM is a large enough topic for a course of its own — but the correlation idea is the same one this whole module has been building: shared identifiers instead of manual guesswork.
+
+<Mermaid title="From a click to a distributed trace" code={rumContextDiagramEn} />
+
+export const rumContextDiagramEn = `flowchart LR
+  U[Real user in browser] --> Act["RUM action: click 'Pay now'"]
+  Act --> View[RUM view/session]
+  Act --> Req["Traced fetch/XHR call\\n(trace context injected)"]
+  Req --> Span[Backend service span]
+  Span --> Trace[APM distributed trace]
+  View -.linked to.-> Trace
+`
+
+<Callout title="The one-line takeaway">
+RUM turns what a real visitor did in their browser or app into structured session/view/action/error events, and when it propagates trace context into the backend calls those actions trigger, it extends correlation one hop past the backend trace — from "which spans handled this" all the way out to "which real user caused this."
+</Callout>
+
+export const quizRumContextEn = [
+  {
+    q: 'What is the key difference between RUM and synthetic monitoring?',
+    options: [
+      'RUM captures actual visitor sessions from a real browser/app; synthetic monitoring runs a scripted browser on a schedule',
+      'RUM only works on mobile apps',
+      'Synthetic monitoring captures real user clicks; RUM does not',
+      'They are the same feature under two different names'
+    ],
+    answer: 0
+  },
+  {
+    q: 'Which of these is NOT one of the structured event types RUM captures?',
+    options: [
+      'session',
+      'view',
+      'action',
+      'log processing pipeline'
+    ],
+    answer: 3
+  },
+  {
+    q: 'What does allowedTracingUrls control in a RUM SDK initialization?',
+    options: [
+      'Which pages the RUM SDK is allowed to monitor',
+      'Which backend URLs receive injected trace context headers from the frontend',
+      'Which users are tracked by session',
+      'The sampling rate for RUM sessions'
+    ],
+    answer: 1
+  },
+  {
+    q: 'How does RUM extend the correlation story built by backend traces alone?',
+    options: [
+      'It replaces backend traces entirely',
+      'It links a real user\'s session/view/action all the way to the backend trace(s) that action caused',
+      'It only works for mobile apps, not browsers',
+      'It removes the need for the env/service/version triple'
+    ],
+    answer: 1
+  }
+]
+
+<Quiz client:visible id="correlating-signals/rum-and-real-user-context" questions={quizRumContextEn} />
+
+<ProgressTracker client:visible id="correlating-signals/rum-and-real-user-context" />

@@ -1,0 +1,129 @@
+---
+title: 'Indexes, Exclusion Filters, and Retention'
+description: 'สามจุดที่ log ถูก drop หรือ filter ได้จริง ๆ — Agent-side exclude_at_match, index daily_limit/retention_days และ Exclusion Filter ระดับ index — ทำไมทั้งสามไม่ใช่เรื่องเดียวกัน'
+sidebar:
+  order: 2
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ไอเดียหลักในหนึ่งประโยค
+
+log ถูก drop หรือ filter ได้ที่สามขั้นตอนที่ต่างกันจริง ๆ — บน host ก่อนที่มันจะออกไปเลย, ที่ quota รายวันของ index หรือด้วย Exclusion Filter ของ index เอง — แต่ละจุดมีผลเรื่อง cost และการกู้คืนที่ต่างกัน จึงห้ามเอามาปนกัน
+
+## ขั้นที่ 1: `exclude_at_match` ฝั่ง Agent
+
+ก่อนที่ log จะออกจาก host เลย ตัว Agent เองสามารถ drop มันได้ผ่าน entry ใน `log_processing_rules` ที่ type เป็น `exclude_at_match` โดย match regex pattern กับ raw log line
+
+```yaml
+logs:
+  - type: file
+    path: /my/app/file.log
+    service: payments-api
+    source: java
+    log_processing_rules:
+      - type: exclude_at_match
+        name: exclude_healthcheck_lines
+        pattern: 'GET /healthz'
+```
+
+นี่คือจุด filter ที่ถูกที่สุดเท่าที่จะทำได้ เพราะบรรทัดที่ถูก drop ไม่กิน network, intake หรือ storage เลย — แต่มันก็เป็นการตัดสินใจที่ final เช่นกัน log ที่ถูก exclude ตรงนี้หายไปตลอดกาล ไม่ถูก archive, ไม่ไปถึง Processing Pipeline และกู้คืนทีหลังไม่ได้ ใช้จุดนี้เฉพาะกับบรรทัดที่ไม่มีค่าจริง ๆ (noise ของ health-check, debug spam ที่ไม่ต้องการในรูปแบบไหนเลย) เพราะไม่มี undo
+
+## ขั้นที่ 2: Log Index — `retention_days` กับ `daily_limit`
+
+log ที่รอดจาก Agent แล้วผ่าน intake กับ Processing Pipeline มาถึง **Log Index** หนึ่งตัวหรือมากกว่า index คือจุดที่ full-price searchable retention เกิดขึ้นจริง และแต่ละ index ตั้งค่าตัวเลขสองตัวที่สำคัญต่อ cost และ behavior:
+
+```json
+{
+  "name": "main",
+  "daily_limit": 100,
+  "retention_days": 30,
+  "exclusion_filters": [
+    { "name": "exclude-debug", "query": "level:debug" }
+  ]
+}
+```
+
+- **`retention_days`** — log ที่ถูกเขียนเข้า index นี้ค้นหาได้ใน Logs Explorer แบบ full price นานกี่วัน
+- **`daily_limit`** — quota GB/วันของ index นี้ พอถึง quota ของวันนั้นแล้ว index จะหยุดรับ log เพิ่ม หรือ (แล้วแต่ config) เริ่ม sample ดังนั้น `daily_limit` ที่ตั้งผิดขนาดสามารถจำกัดสิ่งที่ค้นหาได้แบบเงียบ ๆ โดยไม่เกี่ยวกับส่วนอื่นใน config เลย
+
+organization ปกติจะมี index มากกว่าหนึ่งตัว (เช่น `main` สำหรับ production service, index retention สั้นกว่าสำหรับ log ที่ noisy หรือมูลค่าต่ำ) และ log จะไปลง index ไหนก็ถูกควบคุมด้วย filter criteria ระดับ index เองอีกที — แต่ประเด็นสำคัญของบทนี้คือ `retention_days` กับ `daily_limit` เป็น property ของ index ไม่ใช่ของ Agent หรือ pipeline
+
+## ขั้นที่ 3: Exclusion Filter — คันโยกหลักของปริมาณที่ index
+
+**Exclusion Filter** อยู่บน index ตัวใดตัวหนึ่ง และใช้ query แบบ Lucene-style — syntax เดียวกับที่พิมพ์ในช่องค้นหาของ Logs Explorer — เพื่อ sample ออกหรือ drop log ที่ match ไม่ให้ถูกเขียนเข้า *index นั้น* จาก config ด้านบน `{ "name": "exclude-debug", "query": "level:debug" }` หมายความว่า log ที่ match `level:debug` จะไม่ถูกเขียนเข้า index `main`
+
+นี่คือคันโยกหลักที่ใช้ประจำวันเพื่อคุมปริมาณที่ index, ค้นหาได้ และคิดเงินเต็มราคา และมันถูกออกแบบให้ยืดหยุ่นและ final น้อยกว่าการ drop ฝั่ง Agent โดยตั้งใจ:
+
+- log ที่ถูก exclude จาก index หนึ่งด้วย Exclusion Filter ของมัน ยังถูก route ไป index *อื่น* ได้ (ที่มี retention หรือ cost ต่างกัน) ถ้า index routing ส่งมันไปทางนั้น
+- log ที่ถูก exclude จากทุก index ยังไปถึง Log Archive ได้ ถ้าตั้งค่า archiving ไว้ — บทถัดไปจะพูดเรื่องนี้
+- เพราะการ exclude เกิดที่ index ไม่ใช่บน host จึงเปลี่ยนได้จากส่วนกลางใน Datadog โดยไม่ต้องแตะ config ไฟล์ของ Agent สักตัวเดียว
+
+## เรียงลำดับทั้งหมดเข้าด้วยกัน
+
+เส้นทางเต็ม ๆ ที่ log เดินทางผ่าน ตั้งแต่ต้นจนจบ คือ **Agent เก็บ** log → rule `exclude_at_match` ฝั่ง Agent (ถ้ามี) อาจ drop log บางตัวก่อนที่มันจะออกจาก host เลย → log ที่รอดมาถึง **intake** → **Processing Pipeline** parse และ enrich log ทุกตัวที่ match filter ของมัน → log มาถึง **Log Index** ซึ่ง **Exclusion Filter** ของมันเองเป็นตัวตัดสินว่าอะไรจะถูก index จริง ค้นหาได้ และคิดเงินเต็มราคา
+
+<Mermaid title="Where a log can be dropped or filtered" code={indexFilterDiagramTh} />
+
+export const indexFilterDiagramTh = `flowchart LR
+  A[Agent collects log] --> B{exclude_at_match\\nmatches?}
+  B -->|yes, dropped forever| Z[Gone: no archive, no index]
+  B -->|no| C[Intake]
+  C --> D[Processing Pipeline\\nparse + enrich]
+  D --> E{Index Exclusion Filter\\ne.g. level:debug}
+  E -->|excluded| F[Not written to this index\\nmay still reach archive/other index]
+  E -->|kept| G["Indexed: searchable\\nfor retention_days, billed at full price"]`
+
+<Callout title="The one-line takeaway">
+สามขั้นตอนที่ต่างกันสามารถ drop หรือ filter log ได้ — `exclude_at_match` ฝั่ง Agent (final, ก่อนที่ log จะออกจาก host เลย), `daily_limit`/`retention_days` ของ index (quota กับช่วงเวลาที่ค้นหาได้ของข้อมูล full-price) และ **Exclusion Filter** ของ index (query แบบ Lucene-style ที่กัน log ไม่ให้เข้า index *นั้น* โดยไม่จำเป็นต้องทำลายมัน) — ถ้าเอาสามอย่างนี้มาปนกันจะจบที่การจ่ายเงินให้ log ที่ไม่จำเป็นต้อง index หรือไม่ก็สูญเสีย log ที่จริง ๆ อยากเก็บใน archive ไปถาวร
+</Callout>
+
+export const quizIndexesExclusionFiltersTh = [
+  {
+    q: 'log ที่ถูก drop โดย rule `exclude_at_match` ฝั่ง Agent จะเป็นยังไงต่อ',
+    options: [
+      'ยังถูกเขียนลง Log Archive เพื่อ compliance',
+      'ถูก route ไป index ที่ retention สั้นกว่าแทน',
+      'ถูก drop บน host และหายไปตลอดกาล — ไม่ index ไม่ archive',
+      'ถูกกักไว้จนกว่า daily_limit จะ reset',
+    ],
+    answer: 2,
+  },
+  {
+    q: '`daily_limit` ของ index ควบคุมอะไร',
+    options: [
+      'log ค้นหาได้กี่วัน',
+      'quota GB/วันของ log ที่เขียนเข้า index นั้น',
+      'regex pattern ที่ใช้ exclude ฝั่ง Agent',
+      'จำนวน Processing Pipeline ที่แนบกับมันได้',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'log ที่ match กับ Exclusion Filter ของ index (เช่น `level:debug`) อธิบายได้ดีที่สุดว่า',
+    options: [
+      'ถูกลบบน host ก่อน intake เหมือนกับ exclude_at_match เป๊ะ',
+      'ถูกกันออกจาก index นั้นตัวเดียว แต่อาจยังถูก route ไปที่อื่นได้ (index อื่นหรือ archive)',
+      'ถูกส่งไปทุก index อื่นอัตโนมัติเสมอ',
+      'กู้คืนไม่ได้ถาวร เหมือนกับการ drop ฝั่ง Agent',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'ลำดับที่ถูกต้องที่ log เดินทางผ่านตั้งแต่ต้นจนจบคือแบบไหน',
+    options: [
+      'Index Exclusion Filter ก่อน แล้วค่อย Agent exclude_at_match แล้วค่อย Processing Pipeline',
+      'Processing Pipeline ก่อน แล้วค่อย Agent collection แล้วค่อย index',
+      'Agent collection ก่อน แล้วค่อย exclude_at_match ฝั่ง Agent (ถ้ามี) แล้วค่อย intake แล้วค่อย Processing Pipeline แล้วค่อย index พร้อม Exclusion Filter ของมัน',
+      'Intake ก่อน แล้วค่อย Agent collection แล้วค่อย Exclusion Filter แล้วค่อย Processing Pipeline',
+    ],
+    answer: 2,
+  },
+]
+
+<Quiz client:visible id="log-management/indexes-exclusion-filters-and-retention" questions={quizIndexesExclusionFiltersTh} />
+
+<ProgressTracker client:visible id="log-management/indexes-exclusion-filters-and-retention" />

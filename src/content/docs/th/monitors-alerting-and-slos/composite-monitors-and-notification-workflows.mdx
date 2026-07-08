@@ -1,0 +1,122 @@
+---
+title: 'Composite Monitor กับ Notification Workflow'
+description: 'composite monitor รวม monitor ที่มีอยู่แล้วเข้าด้วยกันด้วย boolean logic เพื่อลด noise อย่างไร @-mention กับ escalation_message route และ escalate alert อย่างไร และ Downtime mute notification โดยไม่ปิด evaluation อย่างไร'
+sidebar:
+  order: 2
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ไอเดียหลักในหนึ่งประโยค
+
+**composite monitor** รวม monitor ที่มีอยู่แล้วตั้งแต่สองตัวขึ้นไปเข้าด้วยกันด้วย boolean logic เพื่อให้ alert ได้จาก *ชุดผสม* ของเงื่อนไข แทนที่จะ alert ทุกครั้งที่ monitor ตัวใดตัวหนึ่ง fire เดี่ยว ๆ และเมื่อถึงจุดที่ต้อง notify ใครสักคนจริง ๆ `@`-mention กับ `escalation_message` คือตัวควบคุมว่าใครจะได้ยินและมันจะขยายวงเมื่อไหร่
+
+## Composite monitor: alert จากชุดผสม ไม่ใช่สัญญาณเดี่ยว
+
+composite monitor อ้างอิง ID ของ monitor ที่มีอยู่แล้ว แล้วรวม trigger state ของมันด้วย boolean operator — AND (`&&`), OR (`||`), NOT (`!`) ผลลัพธ์ทางปฏิบัติคือลด noise ลง แทนที่จะ page ทุกครั้งที่มี monitor ไหน fire จะ page เฉพาะตอนที่ *ชุดผสมของ state* ตรงตามที่กำหนดเท่านั้น
+
+```json
+{
+  "name": "payments-api error rate (composite)",
+  "type": "composite",
+  "query": "111111 && !222222",
+  "message": "Error rate is elevated on payments-api and the upstream-dependency monitor is healthy, so this looks like our own issue."
+}
+```
+
+ในที่นี้ `111111` คือ ID ของ error-rate monitor และ `222222` คือ ID ของ upstream-dependency monitor สูตรนี้จะ fire ก็ต่อเมื่อ `111111` กำลัง alert **และ** `222222` **ไม่ได้** alert ถ้าทั้งสองตัว alert พร้อมกัน composite จะเงียบ — เพราะเรื่องที่น่าจะเกิดคือปัญหาจริงอยู่ที่ upstream และ monitor ของ upstream เองก็ page คนที่ดูแล dependency นั้นอยู่แล้ว
+
+## Route notification ด้วย `@`-mention
+
+ฟิลด์ `message` ของ monitor ใส่ `@`-mention ตรงในเนื้อข้อความได้เลย — `@username` สำหรับคนคนหนึ่ง, `@slack-channel-name` สำหรับ Slack channel ที่เชื่อมไว้แล้ว, `@pagerduty-service-name` สำหรับ PagerDuty service ที่เชื่อมไว้แล้ว แต่ละตัวต้องตั้งเป็น integration ใน Datadog ก่อน handle ใน message คือตัวที่ route notification ไปเมื่อ connection นั้นมีอยู่แล้ว
+
+```json
+{
+  "message": "@here Error rate is elevated on payments-api.\n@slack-payments-oncall @pagerduty-payments-critical"
+}
+```
+
+## `escalation_message`: message อีกแบบสำหรับ re-notification
+
+ถ้า monitor ยังค้าง trigger อยู่ `renotify_interval` (หน่วยเป็นนาที) จะทำให้มัน notify ซ้ำเป็นระยะแทนที่จะ notify แค่ครั้งเดียว `escalation_message` เป็นฟิลด์แยกที่ให้ re-notification รอบนั้นใช้ข้อความ **ต่างจากเดิม** ได้ ส่วนใหญ่ใช้เพื่อดึง on-call escalation วงกว้างขึ้นเมื่อปัญหายังไม่ถูกแก้นานขึ้นเรื่อย ๆ
+
+```json
+{
+  "options": {
+    "renotify_interval": 15
+  },
+  "message": "@slack-payments-oncall Error rate is elevated on payments-api.",
+  "escalation_message": "@pagerduty-payments-escalation Still broken after 15 minutes, escalating to the secondary on-call."
+}
+```
+
+page แรกไปที่ Slack channel หลัก ถ้าผ่านไปสิบห้านาทีแล้วยังไม่มีใคร resolve notification *ถัดไป* จะออกไปด้วยข้อความของ `escalation_message` แทน ดึง secondary on-call ของ PagerDuty เข้ามา
+
+## Downtime: mute โดยไม่ปิด evaluation
+
+**Downtime** (mute window) ปิดเสียง notification ของ monitor สำหรับช่วง maintenance ที่รู้ล่วงหน้า โดยไม่แตะต้อง evaluation เลย monitor ยังรัน query ของมันต่อไปและอัปเดต internal state ตลอดเวลา มีแค่ notification ขาออกเท่านั้นที่ถูกกัน จุดนี้สำคัญเพราะ status history ยังถูกต้องอยู่ และ notification จะกลับมาทำงานเองทันทีที่ Downtime window จบ ไม่ต้องมีขั้นตอน re-enable ด้วยมือ
+
+<Mermaid title="Composite evaluation and escalation flow" code={compositeDiagramTh} />
+
+export const compositeDiagramTh = `flowchart LR
+  A[Monitor A alerting] --> C{Composite formula}
+  B[Monitor B alerting] --> C
+  C -->|A AND NOT B is true| N[Notify via @-mentions]
+  C -->|formula is false| Q[Stay quiet]
+  N --> R{Still triggered after renotify_interval}
+  R -->|yes| E[Send escalation_message]
+  R -->|no| Done[Resolved]`
+
+<Callout title="The one-line takeaway">
+composite monitor รวม monitor อื่นด้วย `&&`/`||`/`!` เพื่อ alert เฉพาะชุดผสมของ state ที่มีความหมายจริง ๆ `@`-mention ใน `message` ของ monitor route notification ไปหาคน, Slack channel หรือ PagerDuty service `escalation_message` ส่งข้อความต่างออกไปตอน re-notification เพื่อขยาย escalation และ Downtime mute notification สำหรับช่วง maintenance โดยไม่หยุด evaluation
+</Callout>
+
+export const quizCompositeMonitorsTh = [
+  {
+    q: 'สูตร composite monitor แบบ `111111 && !222222` หมายความว่าอะไร',
+    options: [
+      'notify ถ้า monitor 111111 หรือ 222222 ตัวใดตัวหนึ่ง alert',
+      'notify เฉพาะตอนที่ monitor 111111 alert และ monitor 222222 ไม่ alert',
+      'notify เฉพาะตอนที่ทั้งสอง monitor alert พร้อมกัน',
+      'ปิด monitor 222222 ทุกครั้งที่ monitor 111111 fire',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'ทำไมทีมถึงใช้ composite monitor แทนที่จะ alert จาก error-rate monitor เดี่ยว ๆ',
+    options: [
+      'เพื่อลด query interval',
+      'เพื่อไม่ให้ถูก page ตอนที่สาเหตุจริงคือ upstream dependency ที่มีคนดูแลอยู่แล้ว',
+      'เพราะ monitor เดี่ยวมี threshold ไม่ได้',
+      'เพื่อเพิ่มจำนวน notification สำหรับ incident เดียวกัน',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'ความต่างระหว่าง `message` ปกติของ monitor กับ `escalation_message` คืออะไร',
+    options: [
+      'ไม่มีความต่าง เป็นชื่อเรียกอื่นของฟิลด์เดียวกัน',
+      '`escalation_message` แทนที่ `message` ถาวรหลัง notification ครั้งแรก',
+      '`escalation_message` ถูกส่งตอน re-notification ถ้า monitor ยังค้าง trigger อยู่ ส่วนใหญ่ใช้ดึง on-call escalation วงกว้างขึ้น',
+      '`escalation_message` ใช้ได้กับ composite monitor เท่านั้น',
+    ],
+    answer: 2,
+  },
+  {
+    q: 'evaluation ของ monitor เป็นอย่างไรระหว่างที่อยู่ใน Downtime (mute window) ที่กำลัง active',
+    options: [
+      'monitor หยุดประเมิน query ของมันไปเลย',
+      'monitor ยังประเมินต่อและอัปเดต state ต่อไปตามปกติ มีแค่ notification ขาออกเท่านั้นที่ถูกกัน',
+      'monitor ถูกปิดถาวรจนกว่าจะ re-enable ด้วยมือ',
+      'monitor กลายเป็น composite monitor โดยอัตโนมัติ',
+    ],
+    answer: 1,
+  },
+]
+
+<Quiz client:visible id="monitors-alerting-and-slos/composite-monitors-and-notification-workflows" questions={quizCompositeMonitorsTh} />
+
+<ProgressTracker client:visible id="monitors-alerting-and-slos/composite-monitors-and-notification-workflows" />

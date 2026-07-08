@@ -1,0 +1,137 @@
+---
+title: 'Unified Service Tagging in Practice'
+description: 'How one env/service/version triple, set once via Kubernetes labels and the downward API, flows into Agent metrics, APM traces, and log injection - letting you pivot between all three Datadog products with zero manual cross-referencing.'
+sidebar:
+  order: 2
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The idea in one sentence
+
+Set `env`, `service`, and `version` once on a deployable unit, and that same triple is what lets a metrics dashboard, an APM service page, and the Logs Explorer all agree on exactly which service you are looking at.
+
+## One deployable unit, tagged once
+
+Take a single deployable unit, `checkout-service`, and tag it with `DD_ENV=production`, `DD_SERVICE=checkout-service`, and `DD_VERSION=2.4.1`. Rather than hardcoding those three values in several places, the same Kubernetes labels/downward-API pattern from Foundations sets them once on the pod and reflects them into environment variables.
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout-service
+spec:
+  template:
+    metadata:
+      labels:
+        tags.datadoghq.com/env: "production"
+        tags.datadoghq.com/service: "checkout-service"
+        tags.datadoghq.com/version: "2.4.1"
+    spec:
+      containers:
+        - name: checkout-service
+          image: registry.example.com/checkout-service:2.4.1
+          env:
+            - name: DD_ENV
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['tags.datadoghq.com/env']
+            - name: DD_SERVICE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['tags.datadoghq.com/service']
+            - name: DD_VERSION
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['tags.datadoghq.com/version']
+```
+
+The labels are the single source of truth. The downward API reflects them into `DD_ENV`/`DD_SERVICE`/`DD_VERSION`, so those environment variables always match what Kubernetes — and the Agent's autodiscovery — already see on the pod. Change the label once, and every consumer downstream picks up the new value on the next rollout.
+
+## Three consumers, one identity
+
+- **The Agent's infrastructure/container metrics** — autodiscovery tags container and infra metrics straight from the pod's labels, so CPU, memory, and request-rate metrics for `checkout-service` pods carry `env`, `service`, and `version` without any separate configuration.
+- **The tracer initialization for APM** — `dd-trace` reads `DD_ENV`, `DD_SERVICE`, and `DD_VERSION` from the environment automatically, so every span it creates is tagged with the same triple.
+
+```javascript
+// dd-trace picks up DD_ENV, DD_SERVICE, and DD_VERSION from the environment automatically
+require('dd-trace').init({
+  log_injection: true
+});
+```
+
+- **The log integration from the previous lesson** — because log injection reads the same active service configuration the tracer uses, the `dd.env`, `dd.service`, and `dd.version` fields stamped onto every log line are that identical triple too.
+
+## The pivot: one triple, three products, zero cross-referencing
+
+With the triple flowing into all three products, a single incident walk looks like this: start on a metrics dashboard scoped to `service:checkout-service env:production`, and see CPU, latency, and request rate climbing. Jump to the APM service page for the same `service`, `env`, and `version`, and see trace latency, error rate, and the service's neighbors on the service map. Jump again to the Logs Explorer, pre-filtered to that same triple, and see the exact log lines — including any `dd.trace_id`-tagged errors from the previous lesson — for that version, in that environment.
+
+Compare that with the before state: metrics tagged `service:checkout`, a Java tracer tagged `service:checkout-svc`, and logs tagged `application:checkout`. Nothing lines up, and whoever is debugging has to remember three different names while moving between products. After tagging consistently, the string is identical everywhere, so any of the three products' UI can pre-filter to the same identity, and a saved view in one product describes the exact same slice of the world in another.
+
+<Mermaid title="One triple, three products" code={ustPracticeDiagramEn} />
+
+export const ustPracticeDiagramEn = `flowchart LR
+  T["env=production\\nservice=checkout-service\\nversion=2.4.1"] --> Agent[Agent autodiscovery]
+  T --> Tracer[Tracer init]
+  T --> LogInj[Log injection]
+  Agent --> M[Metrics dashboard]
+  Tracer --> A[APM service page]
+  LogInj --> L[Logs Explorer]
+  M -.pivot.-> A
+  A -.pivot.-> L
+  L -.pivot.-> M
+`
+
+<Callout title="The one-line takeaway">
+`env`, `service`, and `version` set once on a deployable unit — via the same Kubernetes labels and downward API pattern from Foundations — flow automatically into Agent metrics, tracer initialization, and log injection, so a metrics dashboard, an APM service page, and the Logs Explorer all describe the exact same slice of the world with zero manual cross-referencing.
+</Callout>
+
+export const quizUstPracticeEn = [
+  {
+    q: 'In the Kubernetes example, why are DD_ENV, DD_SERVICE, and DD_VERSION set via fieldRef to pod labels instead of hardcoded strings?',
+    options: [
+      'Hardcoded strings are faster at runtime',
+      'It keeps the labels as the single source of truth, so there is one place to change the identity instead of several',
+      'fieldRef is required by dd-trace and cannot be avoided',
+      'Kubernetes does not allow static environment variable values'
+    ],
+    answer: 1
+  },
+  {
+    q: 'Once DD_ENV/DD_SERVICE/DD_VERSION are set in the container\'s environment, what does the tracer initialization need to do to pick them up?',
+    options: [
+      'Nothing extra — dd-trace reads them from the environment automatically',
+      'The values must be passed explicitly to init() every time',
+      'A separate tagging API call is required after init()',
+      'The Agent must forward them to the tracer over a socket'
+    ],
+    answer: 0
+  },
+  {
+    q: 'What breaks the "zero manual cross-referencing" pivot between metrics, APM, and logs?',
+    options: [
+      'Using the exact same env/service/version string in all three products',
+      'Tagging metrics with service:checkout, traces with service:checkout-svc, and logs with application:checkout',
+      'Setting DD_VERSION to match the deployed image tag',
+      'Using Kubernetes labels as the source of truth for tags'
+    ],
+    answer: 1
+  },
+  {
+    q: 'What is the concrete payoff described for a consistent env/service/version triple across metrics, APM, and logs?',
+    options: [
+      'Faster Agent startup times',
+      'Lower Datadog billing costs',
+      'A metrics dashboard, an APM service page, and the Logs Explorer can all be scoped to the exact same service+env+version with no manual mapping',
+      'Automatic rollback of a bad deployment'
+    ],
+    answer: 2
+  }
+]
+
+<Quiz client:visible id="correlating-signals/unified-service-tagging-in-practice" questions={quizUstPracticeEn} />
+
+<ProgressTracker client:visible id="correlating-signals/unified-service-tagging-in-practice" />

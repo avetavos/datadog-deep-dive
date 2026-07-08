@@ -1,0 +1,118 @@
+---
+title: 'Log Collection and Processing Pipelines'
+description: 'How the Datadog Agent collects logs via a logs: config block, and how Processing Pipelines parse and enrich every matching log after intake.'
+sidebar:
+  order: 1
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The idea in one sentence
+
+Logs get into Datadog because the Agent is told, via a `logs:` config block, where to read them from and what `service`/`source` to label them with, and once they arrive a **Processing Pipeline** parses and enriches each one before it ever reaches an index.
+
+## Telling the Agent where to look
+
+The Agent does not go hunting for logs on its own — every log source is explicit. You add a `logs:` block, typically inside a `conf.d` integration config or the Agent's own logs configuration, and tell it the type of source, the path (or port, for `tcp`), and two labels that matter a lot downstream: `service` and `source`.
+
+```yaml
+logs:
+  - type: file
+    path: /my/app/file.log
+    service: payments-api
+    source: java
+```
+
+- **`type`** — how the Agent reads the log. `file` tails a file on disk; other common values are `tcp`, `udp`, and `docker` for container log collection.
+- **`path`** — where the log lives, for the `file` type. This is a plain file path, not a query.
+- **`service`** — the name of the service that produced the log. This is the same `service` tag used everywhere else in Datadog (metrics, traces), which is exactly what lets a log line, a trace, and a metric all be correlated back to one deployable unit.
+- **`source`** — a technology identifier, not a free-text label. Setting `source: java` (or `nginx`, `postgresql`, and so on) tells Datadog which **built-in, source-specific pipeline** to attach automatically, because Datadog ships pre-built Grok parsing rules for dozens of common frameworks and services.
+
+Once the Agent picks up this config on its next reload, it starts tailing `/my/app/file.log` and shipping each line to Datadog's intake, tagged with `service:payments-api` and `source:java`.
+
+## Processing Pipelines: parse and enrich after intake
+
+A **Processing Pipeline** is an ordered list of **processors** that runs on every log that arrives at intake and matches the pipeline's `filter` query. This stage happens *after* the log has left the host and reached Datadog, and *before* it is written into any index — its job is purely to parse unstructured text into structured attributes and enrich the log, not to decide whether the log gets kept.
+
+A pipeline is scoped by a filter, for example `service:my-service`, so that only logs from the services or sources it's meant for pass through it. You can have many pipelines active at once, each scoped to a different `service` or `source`, including the built-in ones that `source: java`, `source: nginx`, etc. attach automatically.
+
+Common processors inside a pipeline, run in order:
+
+- **Grok Parser** — applies a Grok pattern to the raw log message to pull structured attributes out of unstructured text, e.g. extracting `duration`, `http.status_code`, or `user.id` from a line that started as one long string.
+- **Date Remapper** — tells Datadog which of the now-parsed attributes is the log's official timestamp (instead of falling back to intake time), which matters for correctly placing the log on the timeline.
+- **Status Remapper** — maps a parsed attribute (like a text field containing `ERROR` or `WARN`) onto Datadog's standard log `status` (severity) field, so severity-based views and facets work consistently across services.
+
+```text
+Pipeline: "payments-api logs"
+filter: service:payments-api
+
+1. Grok Parser    -> extract duration, http.status_code, user.id from message
+2. Date Remapper  -> use parsed `timestamp` attribute as the log's official time
+3. Status Remapper -> map parsed `level` attribute to Datadog's status field
+```
+
+<Mermaid title="From Agent config to a parsed log" code={pipelineFlowDiagram} />
+
+export const pipelineFlowDiagram = `flowchart LR
+  A["logs: block in Agent config\\ntype/path/service/source"] --> B[Agent tails the file]
+  B --> C[Intake]
+  C --> D{Pipeline filter matches?}
+  D -->|yes| E[Grok Parser]
+  E --> F[Date Remapper]
+  F --> G[Status Remapper]
+  G --> H["Parsed, enriched log\\n(not yet indexed)"]
+  D -->|no match| H`
+
+<Callout title="The one-line takeaway">
+The Agent's `logs:` config block (`type`, `path`, `service`, `source`) is how a log gets collected at all, and a **Processing Pipeline** — a `filter`-scoped, ordered set of processors like Grok Parser, Date Remapper, and Status Remapper — parses and enriches every matching log after intake and before indexing; it does not decide what gets kept.
+</Callout>
+
+export const quizLogCollectionPipelines = [
+  {
+    q: 'In an Agent `logs:` block with `type: file`, what does the `path` field specify?',
+    options: [
+      'The Grok pattern to apply',
+      'The file on disk that the Agent should tail',
+      'The name of the processing pipeline',
+      'The index the log should be written to',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'Setting `source: java` in a logs config primarily does what?',
+    options: [
+      'Deletes non-Java log lines before they leave the host',
+      'Sets the log retention period',
+      'Attaches Datadog\'s built-in, source-specific processing pipeline for Java logs',
+      'Encrypts the log in transit',
+    ],
+    answer: 2,
+  },
+  {
+    q: 'What does a Processing Pipeline\'s `filter` query (e.g. `service:my-service`) control?',
+    options: [
+      'Which logs are permanently dropped and never billed',
+      'Which logs from intake are scoped into that pipeline for parsing and enrichment',
+      'How many days the matching logs are retained in an index',
+      'Which hosts run the Agent',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'Where does Processing Pipeline parsing happen relative to indexing?',
+    options: [
+      'After a log is written into an index',
+      'On the host, before the log leaves via the Agent',
+      'After intake and before the log reaches an index',
+      'Pipelines and indexing happen at the same stage, in no particular order',
+    ],
+    answer: 2,
+  },
+]
+
+<Quiz client:visible id="log-management/log-collection-and-processing-pipelines" questions={quizLogCollectionPipelines} />
+
+<ProgressTracker client:visible id="log-management/log-collection-and-processing-pipelines" />

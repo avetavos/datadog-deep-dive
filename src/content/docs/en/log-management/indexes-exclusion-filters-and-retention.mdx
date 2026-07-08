@@ -1,0 +1,129 @@
+---
+title: 'Indexes, Exclusion Filters, and Retention'
+description: 'The three distinct places a log can be dropped or filtered — Agent-side exclude_at_match, index daily_limit/retention_days, and index-level Exclusion Filters — and why they are not the same thing.'
+sidebar:
+  order: 2
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The idea in one sentence
+
+A log can be dropped or filtered at three genuinely different stages — on the host before it ever leaves, or at an index's daily quota, or by an index's own Exclusion Filter — and each of those has different cost and recoverability implications, so they must not be conflated.
+
+## Stage 1: Agent-side `exclude_at_match`
+
+Before a log ever leaves the host, the Agent itself can drop it via a `log_processing_rules` entry with type `exclude_at_match`, matching a regex pattern against the raw log line.
+
+```yaml
+logs:
+  - type: file
+    path: /my/app/file.log
+    service: payments-api
+    source: java
+    log_processing_rules:
+      - type: exclude_at_match
+        name: exclude_healthcheck_lines
+        pattern: 'GET /healthz'
+```
+
+This is the cheapest possible place to filter, because a dropped line never consumes network, intake, or storage — but it is also final. A log excluded here is gone forever: it is not archived, it does not reach a Processing Pipeline, and it cannot be recovered later. Only use this for genuinely worthless lines (health-check noise, debug spam you never want in any form), because there is no undo.
+
+## Stage 2: Log Indexes — `retention_days` and `daily_limit`
+
+Logs that survive the Agent and pass through intake and a Processing Pipeline arrive at one or more **Log Indexes**. An index is where full-price, searchable retention actually happens, and each index configures two numbers that matter for cost and behavior:
+
+```json
+{
+  "name": "main",
+  "daily_limit": 100,
+  "retention_days": 30,
+  "exclusion_filters": [
+    { "name": "exclude-debug", "query": "level:debug" }
+  ]
+}
+```
+
+- **`retention_days`** — how long logs written into this index stay searchable in the Logs Explorer at full price.
+- **`daily_limit`** — a GB/day quota for the index; once the quota is hit for the day, the index either stops accepting further logs or (depending on configuration) starts sampling, so a badly sized `daily_limit` can silently cap what's searchable regardless of anything else in your config.
+
+An organization typically has more than one index (e.g. `main` for production services, a shorter-retention index for noisy or low-value logs), and which index a log lands in is itself controlled by index-level filter criteria — but the key fact for this lesson is that `retention_days` and `daily_limit` are properties of the index, not of the Agent or the pipeline.
+
+## Stage 3: Exclusion Filters — the main lever for indexed volume
+
+An **Exclusion Filter** lives on a specific index and uses a Lucene-style query — the same query syntax you'd type into the Logs Explorer search bar — to sample out or fully drop matching logs from being written into *that index*. In the config above, `{ "name": "exclude-debug", "query": "level:debug" }` means logs matching `level:debug` do not get written into the `main` index.
+
+This is the main day-to-day lever for controlling indexed, searchable, full-price volume, and it is deliberately more flexible and less final than Agent-side dropping:
+
+- A log excluded from one index by its Exclusion Filter can still be routed into a *different* index (with different retention or cost characteristics), if your index routing sends it there.
+- A log excluded from every index can still reach a Log Archive, if archiving is configured — the next lesson covers this.
+- Because the exclusion happens at the index, not on the host, it can be changed centrally in Datadog without touching a single Agent config file anywhere.
+
+## Putting the order together
+
+The full path a log takes, end to end, is: **Agent collects** it → an optional Agent-side `exclude_at_match` rule may drop some logs before they ever leave the host → surviving logs reach **intake** → a **Processing Pipeline** parses and enriches every log that matches its filter → the log reaches a **Log Index**, whose own **Exclusion Filters** decide what actually gets indexed, searchable, and billed at full price.
+
+<Mermaid title="Where a log can be dropped or filtered" code={indexFilterDiagram} />
+
+export const indexFilterDiagram = `flowchart LR
+  A[Agent collects log] --> B{exclude_at_match\\nmatches?}
+  B -->|yes, dropped forever| Z[Gone: no archive, no index]
+  B -->|no| C[Intake]
+  C --> D[Processing Pipeline\\nparse + enrich]
+  D --> E{Index Exclusion Filter\\ne.g. level:debug}
+  E -->|excluded| F[Not written to this index\\nmay still reach archive/other index]
+  E -->|kept| G["Indexed: searchable\\nfor retention_days, billed at full price"]`
+
+<Callout title="The one-line takeaway">
+Three different stages can drop or filter a log — Agent-side `exclude_at_match` (final, before the log ever leaves the host), an index's `daily_limit`/`retention_days` (the quota and searchable window for full-price data), and an index's **Exclusion Filters** (a Lucene-style query that keeps a log out of *that* index without necessarily destroying it) — and mixing them up leads to either paying for logs you didn't need indexed, or permanently losing logs you actually wanted archived.
+</Callout>
+
+export const quizIndexesExclusionFilters = [
+  {
+    q: 'What happens to a log dropped by an Agent-side `exclude_at_match` rule?',
+    options: [
+      'It is still written to a Log Archive for compliance',
+      'It is routed to a lower-retention index instead',
+      'It is dropped on the host and gone forever — not indexed, not archived',
+      'It is held until the daily_limit resets',
+    ],
+    answer: 2,
+  },
+  {
+    q: 'What does an index\'s `daily_limit` control?',
+    options: [
+      'How many days logs stay searchable',
+      'A GB/day quota for logs written into that index',
+      'The regex pattern used for Agent-side exclusion',
+      'How many Processing Pipelines can be attached to it',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'A log matched by an index\'s Exclusion Filter (e.g. `level:debug`) is best described as:',
+    options: [
+      'Deleted on the host before intake, identical to exclude_at_match',
+      'Kept out of that specific index, but potentially still routed elsewhere (another index or an archive)',
+      'Always sent to every other index automatically',
+      'Permanently unrecoverable, same as an Agent-side drop',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'What is the correct order a log passes through end to end?',
+    options: [
+      'Index Exclusion Filter, then Agent exclude_at_match, then Processing Pipeline',
+      'Processing Pipeline, then Agent collection, then index',
+      'Agent collection, then optional Agent-side exclude_at_match, then intake, then Processing Pipeline, then index with its Exclusion Filters',
+      'Intake, then Agent collection, then Exclusion Filters, then Processing Pipeline',
+    ],
+    answer: 2,
+  },
+]
+
+<Quiz client:visible id="log-management/indexes-exclusion-filters-and-retention" questions={quizIndexesExclusionFilters} />
+
+<ProgressTracker client:visible id="log-management/indexes-exclusion-filters-and-retention" />

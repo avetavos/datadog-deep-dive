@@ -1,0 +1,121 @@
+---
+title: 'Checklist ก่อนขึ้น Production'
+description: 'บทสรุปคอร์ส เป็น checklist เรียงลำดับสำหรับขึ้น production กับ Datadog ผูก tagging, cost ของ log/metric, APM sampling กับ retention, SLO/alerting, ownership และ infrastructure as code จากทุกโมดูลก่อนหน้าเข้าด้วยกัน'
+sidebar:
+  order: 4
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ไอเดียหลักในหนึ่งประโยค
+
+การขึ้น production กับ Datadog คือ checklist ไม่ใช่สวิตช์เดียว และทุก item บนนั้นย้อนกลับไปหา decision ที่คอร์สนี้สอนวิธีตัดสินใจไปแล้ว — ตั้งแต่ tagging ของ Foundations, ผ่าน Infrastructure & Metrics, Log Management, APM & Distributed Tracing, Monitors/Alerting/SLOs ไปจนถึง Correlating Signals
+
+## Tagging และ ownership มาก่อน เพราะทุกอย่างที่เหลือขึ้นกับมัน
+
+- **Unified service tagging สอดคล้องกันทุกที่** `env`, `service` และ `version` ถูก apply แบบเดียวกันทั้งใน Agent configuration, APM tracer setup และทุก `logs:` source — นี่คือ tagging model จากโมดูล Foundations ที่ทำให้ log line, trace และ metric ผูกกลับไปหา deployable unit เดียวกันได้ ถ้ามาแก้หลัง go-live ทุก dashboard กับ monitor ที่สร้างไปในระหว่างนั้นจะพลาด telemetry บางส่วนไปแบบเงียบ ๆ
+- **Service Catalog entry มีอยู่จริงและถูกต้อง** ทุก service ที่จะ page ใครสักคนต้องมี Service Catalog entry ที่มี ownership จริง — ทีมไหน, escalation path ไหน, link ไป runbook ไหน นี่คือสิ่งที่โมดูล Correlating Signals ตั้งไว้ และเป็นตัวตัดสินว่า alert จะไปถึง on-call engineer หรือไปถึง mailing list เก่า ๆ ที่ไม่มีใครอ่าน
+
+## Cost ของ log และ metric ตัดสินใจอย่างตั้งใจ ไม่ใช่ตาม default
+
+- **Log index ถูก size ไว้อย่างตั้งใจ** retention กับ daily quota ต่อ index สะท้อนคุณค่าจริงของ log stream นั้น ไม่ใช่ "index ทุกอย่างแล้วค่อยไปคิดทีหลัง" — คือประเด็นทั้งหมดของโมดูล Log Management
+- **exclusion filter มีอยู่สำหรับ log ที่ volume สูงแต่คุณค่าต่ำ** ก่อนที่ volume จะขยายใน production ไม่ใช่มาทำทีหลังหลังบิลแรกที่น่าตกใจ
+- **log-based metric ถูกตั้งไว้สำหรับอะไรก็ตามที่วางแผนจะ exclude** ถ้ายังต้องการ count หรือ trend จาก log stream ที่กำลังจะ filter ออก ให้ config log-based metric ที่พึ่ง `logs_generate_metrics` ไว้ก่อน — การ exclude raw log ไม่ควรทำให้มองไม่เห็น trend ที่เคยสนใจแบบเงียบ ๆ
+- **custom metric tag ถูก review โดยคำนึงถึง cardinality** tag cardinality สูงอย่าง `pod_name` ยัง submit ได้อยู่ Metrics without Limits คุมว่าตัวไหนถูก index และ query ได้จริง ๆ และการเลือกนั้นควรตั้งใจก่อน go-live ไม่ใช่มาค้นพบจาก cost spike
+
+## APM sampling กับ retention review แยกกันเป็นสอง layer
+
+- **ingestion sampling ตั้งไว้อย่างตั้งใจ** นี่คือ layer ที่ตัดสินว่า trace volume ทั้งหมดเท่าไหร่ที่มาถึง Datadog เลย ควรเป็น rate ที่ตั้งใจ ไม่ใช่ default ที่เกิดขึ้นมาเอง
+- **retention filter review แยกจาก sampling** ยืนยันว่า trace ไหนถูกเก็บระยะยาวไม่ว่า sampling จะเป็นยังไง — เช่น ทุกตัวที่มี error หรือทุกตัวที่เกิน latency threshold — และไม่มีใครในทีมสับสนระหว่าง "sample น้อยลง" กับ "retain น้อยลง" มันคือปุ่มคนละอันจากโมดูล APM & Distributed Tracing และ go-live คือจังหวะเช็คทั้งสองอัน ไม่ใช่แค่อันเดียว
+
+## Alerting ผูกกับสิ่งที่สำคัญจริง ๆ
+
+- **SLO define ไว้สำหรับ service กลุ่มเล็ก ๆ ที่ business พึ่งพาจริง ๆ** ไม่ใช่ vanity metric ที่ copy ใส่ทุก service เพราะมันเพิ่มง่าย
+- **burn-rate alert ผูกกับ SLO เหล่านั้น** เพื่อให้ทีมได้รับแจ้งเตือนตอนที่ error budget ยังเหลือให้ react ทัน ไม่ใช่หลังจากหมดไปแล้ว นี่คือ mechanism หลักของโมดูล Monitors, Alerting และ SLOs และมันจะทำงานได้ก็ต่อเมื่อผูกไว้จริงก่อน go-live
+- **notification target ของทุก monitor ถูกเช็คกับ owner ใน Service Catalog** จากขั้นตอน tagging ด้านบน เพื่อให้ page ไปถึงทีมที่ action ได้จริง
+
+## จัดการทั้งหมดเป็น code review เหมือน code
+
+- **monitor, dashboard และ SLO เขียนเป็น Terraform resource** — `datadog_monitor`, `datadog_dashboard_v2`, `datadog_service_level_objective` — แทนที่จะคลิกประกอบเอง ตามที่คุยไปก่อนหน้าในโมดูลนี้
+- **`terraform plan` รันพร้อม query validation เปิดอยู่** เป็นส่วนหนึ่งของ pull request review ปกติ ก่อนที่ monitor หรือ dashboard change จะไปถึง production — bar review เดียวกับ infrastructure change อื่น ๆ
+- **RBAC ถูกเช็ค** ยืนยันว่ามีแค่ role ที่ตั้งใจถือ permission อย่าง `logs_modify_indexes` กับ `logs_write_exclusion_filters` ในขณะที่คนอื่นยังมีแค่ read/query access ปกติ
+- **cost alert monitor ของ Cloud Cost Management มีอยู่จริง** สำหรับ service หรือ account ที่ rollout นี้กระทบ เพื่อให้ cost spike ได้รับ alerting treatment แบบเดียวกับ latency spike ไม่ใช่มาเซอร์ไพรส์ตอนสิ้นเดือน
+
+```text
+Go-Live Checklist
+1. Unified tagging (env/service/version) verified across Agent, APM, logs
+2. Service Catalog ownership accurate for every paging service
+3. Log indexes and exclusion filters sized deliberately; log-based metrics set up first
+4. Custom metric tag cardinality reviewed via Metrics without Limits
+5. APM ingestion sampling and retention filters reviewed as two separate layers
+6. SLOs and burn-rate alerts wired to business-critical services only
+7. Monitor notification targets checked against Service Catalog owners
+8. Monitors/dashboards/SLOs as Terraform code, reviewed via PR with query validation on
+9. RBAC checked: index/exclusion/archive permissions restricted, read access broad
+10. Cloud Cost Management cost alert in place for the affected services/accounts
+```
+
+<Mermaid title="Production rollout checklist, phase by phase" code={rolloutChecklistDiagramTh} />
+
+export const rolloutChecklistDiagramTh = `flowchart LR
+  A[Tagging and ownership] --> B[Log and metric cost decisions]
+  B --> C[APM sampling and retention review]
+  C --> D[SLOs and burn-rate alerting]
+  D --> E[Infrastructure as code review]
+  E --> F[Go-live]
+  A -.Service Catalog owner.-> D
+  B -.cost alert monitor.-> E`
+
+<Callout title="The one-line takeaway">
+checklist ก่อนขึ้น production ของ Datadog ไม่ใช่สวิตช์เดียวที่กด — คือ unified tagging กับ Service Catalog ownership ตั้งไว้ก่อน, cost ของ log/metric ตัดสินใจอย่างตั้งใจ, APM sampling กับ retention filter review แยกกันเป็นสอง layer, SLO กับ burn-rate alert ผูกกับ service ที่สำคัญต่อ business จริง ๆ และทั้งหมดจัดการเป็น Terraform code ที่ review แล้ว พร้อมเช็ค RBAC กับ cost alerting ก่อน go-live
+</Callout>
+
+export const quizRolloutChecklistTh = [
+  {
+    q: 'ทำไม ingestion sampling กับ retention filter ถึงต้อง review แยกกันก่อน go-live',
+    options: [
+      'มันคือ setting เดียวกันแค่คนละชื่อ review ตัวเดียวก็ครอบคลุมอีกตัวแล้ว',
+      'มันคือสอง layer แยกกัน — sampling คุมว่า trace volume มาถึงมากแค่ไหน retention filter คุมว่าอะไรถูกเก็บระยะยาวไม่ว่า sampling จะเป็นยังไง',
+      'retention filter สำคัญกับ log เท่านั้น ไม่เกี่ยวกับ trace',
+      'ingestion sampling เลิกใช้แล้ว config ไม่ได้อีกต่อไป',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'ก่อนจะ exclude log stream ที่ volume สูงแต่คุณค่าต่ำ ควรตั้งอะไรไว้ก่อน',
+    options: [
+      'ไม่ต้องทำอะไรเลย exclusion filter กระทบ visibility ของ trend ไม่ได้',
+      'log-based metric ถ้ายังต้องการ count หรือ trend จาก stream นั้น',
+      'Service Catalog entry ใหม่',
+      'cost alert monitor เฉพาะสำหรับ log stream นั้น',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'ทำไม Service Catalog ownership ที่ถูกต้องถึงสำคัญตอน go-live',
+    options: [
+      'เป็นแค่ documentation เชิง cosmetic ไม่มีผลกับ alerting',
+      'ทำให้ notification ของ monitor ไปถึงทีมที่เป็นเจ้าของและ action กับ service นั้นได้จริง',
+      'มาแทนที่ unified service tagging',
+      'ใช้เพื่อ billing เท่านั้น',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'ทำไมถึงจัดการ monitor, dashboard และ SLO เป็น Terraform code ที่ review ผ่าน pull request แทนที่จะคลิกประกอบใน UI',
+    options: [
+      'UI สร้าง monitor ไม่ได้เลย',
+      'ทำให้ configuration ได้ review, versioning และ reuse ข้าม environment แบบเดียวกับ production change อื่น ๆ',
+      'Datadog บังคับให้ account ที่มี monitor มากกว่าหนึ่งตัวต้องใช้ Terraform',
+      'ทำให้ไม่ต้องมี RBAC permission เลย',
+    ],
+    answer: 1,
+  },
+]
+
+<Quiz client:visible id="production-and-ecosystem/production-rollout-checklist" questions={quizRolloutChecklistTh} />
+
+<ProgressTracker client:visible id="production-and-ecosystem/production-rollout-checklist" />

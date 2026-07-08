@@ -1,0 +1,120 @@
+---
+title: 'Custom Metrics with DogStatsD'
+description: 'DogStatsD, the UDP protocol bundled with the Agent for submitting custom application metrics — datagram format, metric types, and why HISTOGRAM and DISTRIBUTION aggregate differently.'
+sidebar:
+  order: 2
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The idea in one sentence
+
+DogStatsD is a small UDP daemon bundled inside the Agent that lets your application code submit **custom metrics** by firing off a lightweight datagram, without writing a check at all.
+
+## Why DogStatsD exists
+
+Checks (from the previous lesson) are great for infrastructure and known integrations, but they don't help when you want to measure something specific to your own application code — "how many checkout attempts happened," "how long did this function take," "how many unique users hit this endpoint." Writing a full Agent check for that would be overkill. DogStatsD solves this by listening on a local UDP port (`8125` by default) that any process on the host can fire tiny datagrams at. The Agent picks those datagrams up, aggregates them, and forwards them upstream — your application never talks to Datadog's backend directly.
+
+## The datagram format
+
+A DogStatsD submission is a single line of text sent over UDP:
+
+```text
+<METRIC_NAME>:<VALUE>|<TYPE>|@<SAMPLE_RATE>|#<TAG_KEY_1>:<TAG_VALUE_1>,<TAG_2>
+```
+
+For example, submitting a counter for checkout attempts, tagged by environment and payment provider:
+
+```text
+checkout.attempts:1|c|@1|#env:prod,provider:stripe
+```
+
+- `checkout.attempts` — the metric name
+- `1` — the value being submitted
+- `c` — the type (count, in this case)
+- `@1` — the sample rate (here, 1 means "no sampling," i.e. every event is sent)
+- `#env:prod,provider:stripe` — comma-separated tags
+
+## Metric types
+
+DogStatsD supports a fixed set of type codes:
+
+- **COUNT** (`c`) — increments a counter by the given value; use for "how many times did X happen."
+- **GAUGE** (`g`) — sets the metric to an exact value at this instant; use for "what is the current value of X."
+- **HISTOGRAM** (`h`) — records the statistical distribution of a value **aggregated client-side, per host**.
+- **DISTRIBUTION** (`d`) — records the statistical distribution of a value, **aggregated globally, server-side**.
+- **SET** (`s`) — counts the number of unique values submitted for a metric, e.g. unique user IDs.
+- **TIMER** (`ms`) — an alias for HISTOGRAM, conventionally used for timing measurements in milliseconds; it behaves exactly like `h` under the hood.
+
+## HISTOGRAM vs. DISTRIBUTION — the critical nuance
+
+This is the one distinction that trips people up. A single `HISTOGRAM` submission does not produce one metric in Datadog — the **Agent** aggregates the values it saw during the flush interval **on that host** and derives several metrics from it: `.avg`, `.max`, `.median`, `.95percentile`, and `.count`. Of those, `.count` is stored as a **RATE** type and the rest are stored as **GAUGE** types. Because this aggregation happens client-side, per host, a percentile like `.95percentile` only reflects the values seen on that one Agent — if you have 50 hosts each submitting the same histogram metric, you get 50 independent sets of derived metrics, and there is no way to recompute a true global p95 across all of them after the fact.
+
+`DISTRIBUTION` solves exactly this problem: instead of pre-aggregating on the Agent, the raw values are sent up to Datadog's backend, where they are aggregated **globally, across every host and container that submitted that metric name**. That means a distribution metric can give you an accurate global p99 across your entire fleet — something a histogram fundamentally cannot do, no matter how you slice it after the fact.
+
+Rule of thumb: use **HISTOGRAM** when a per-host statistic is genuinely what you want (or when the extra ingestion cost of DISTRIBUTION isn't justified), and use **DISTRIBUTION** whenever you need an accurate percentile computed across your whole fleet — the canonical example being a global p99 latency for a service running on many hosts or containers.
+
+## A client-library example
+
+Using the Python `datadog` package, which wraps the datagram format above:
+
+```python
+from datadog import statsd
+
+# COUNT: increment by 1, tagged
+statsd.increment('checkout.attempts', tags=['env:prod', 'provider:stripe'])
+
+# GAUGE: set the current value
+statsd.gauge('worker.queue.depth', 128, tags=['env:prod'])
+
+# DISTRIBUTION: submit one latency sample, aggregated globally server-side
+statsd.distribution('api.request.duration', 0.083, tags=['env:prod', 'route:/checkout'])
+```
+
+<Mermaid title="DogStatsD path vs. HISTOGRAM/DISTRIBUTION aggregation" code={dogstatsdDiagram} />
+
+export const dogstatsdDiagram = `flowchart LR
+  A[App process] -->|UDP datagram| B[DogStatsD in Agent]
+  B -->|HISTOGRAM: aggregate per host| C[.avg/.max/.median/.95percentile as GAUGE, .count as RATE]
+  B -->|DISTRIBUTION: send raw values| D[Datadog backend]
+  D -->|aggregate globally| E[Accurate percentiles across all hosts]
+  C --> F[Datadog backend]`
+
+<Callout title="The one-line takeaway">
+DogStatsD lets any process submit custom metrics as a tiny UDP datagram with no check code required — but choose your type carefully: **HISTOGRAM aggregates client-side per host**, so its percentiles are only accurate for that one host, while **DISTRIBUTION aggregates globally server-side**, giving you accurate percentiles across your entire fleet.
+</Callout>
+
+export const quizDogstatsd = [
+  {
+    q: 'In the datagram `checkout.attempts:1|c|@1|#env:prod`, what does `@1` represent?',
+    options: ['The metric version', 'The sample rate', 'The Agent port number', 'The tag count'],
+    answer: 1,
+  },
+  {
+    q: 'Which metric type is an alias for HISTOGRAM?',
+    options: ['SET', 'GAUGE', 'TIMER', 'COUNT'],
+    answer: 2,
+  },
+  {
+    q: 'Why can a HISTOGRAM metric not give you an accurate global p95 across 50 hosts?',
+    options: [
+      'HISTOGRAM does not support percentiles at all',
+      'The percentile is computed client-side per host, so each host only knows its own values',
+      'HISTOGRAM values are dropped after 24 hours',
+      'HISTOGRAM only works with GAUGE-typed inputs',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'Which derived sub-metric from a HISTOGRAM submission is stored as a RATE type rather than GAUGE?',
+    options: ['.avg', '.max', '.count', '.median'],
+    answer: 2,
+  },
+]
+
+<Quiz client:visible id="infrastructure-and-metrics/custom-metrics-with-dogstatsd" questions={quizDogstatsd} />
+
+<ProgressTracker client:visible id="infrastructure-and-metrics/custom-metrics-with-dogstatsd" />

@@ -1,0 +1,32 @@
+---
+title: 'Datadog — From Zero to Hero'
+description: 'คอร์ส Datadog แบบ zero-to-hero เน้น developer — Agent กับ integration, unified service tagging, custom metric, log management, APM, การ correlate signal, monitor กับ SLO และการรัน Datadog บน production ด้วย Terraform'
+sidebar:
+  order: 1
+---
+
+import Callout from '../../../../components/Callout.astro';
+
+**Datadog** คือแพลตฟอร์ม observability แบบรวมศูนย์ — มี **Agent** ตัวเบา ๆ ที่รันอยู่ข้าง infrastructure และ application ของคุณ บวก product ตระกูลหนึ่งที่สร้างอยู่บน telemetry ที่ Agent (และโค้ดที่ instrument แล้ว) ส่งเข้ามา — **Infrastructure Monitoring**, **Log Management**, **APM** (distributed tracing), **Monitors & SLOs** และ **Software Catalog** ที่ผูก signal เหล่านั้นทุกตัวกลับไปหา service หนึ่งตัวและเจ้าของของมัน คอร์สนี้เขียนขึ้น**สำหรับ developer และ SRE** — คนที่ตั้งค่า Agent, เขียน tag, จูน sampling และเป็นคนที่โดน page เมื่อ monitor ทำงาน
+
+มีสองเรื่องที่ tutorial เก่าหลายที่มักสอนผิดหรือข้ามไป เพราะโมเดลของ Datadog มีชั้นซับซ้อนกว่าที่เห็นตอนแรก — **log ingestion กับ log indexing เป็นคนละขั้นตอนกัน** คุณส่ง log ทุกตัวเข้า Archive ราคาถูกได้ ในขณะที่มีแค่ส่วนที่ผ่าน filter เท่านั้นที่ถูก index จริงและถูกคิดเงินสำหรับการค้นหา และคุณยัง generate metric จาก log ที่ไม่เคยถูก index เลยก็ได้ ส่วน**"trace sampling" จริง ๆ แล้วคือสองอย่างที่แยกกัน** — ingestion-time sampling (span กี่ % ที่ถูกส่งเข้า Datadog) กับ retention filter ฝั่ง server (trace ที่ถูก ingest แล้วอันไหนยัง search ได้) — โดย metric ที่คำนวณจาก trace ไม่ถูกกระทบจากทั้งสองอย่างนี้เลย คอร์สนี้สอนทั้งสอง pipeline อย่างถูกต้องและแยกจากกันชัดเจน พร้อมกับ convention การ tag — unified service tagging — ที่ผูก metric, log และ trace กลับไปหา service เดียวกัน
+
+## สิ่งที่คอร์สนี้ครอบคลุม
+
+| Module | คุณจะได้เรียน |
+| --- | --- |
+| **Foundations** | Datadog คืออะไร, Agent กับ integration, unified service tagging, ทัวร์ UI |
+| **Infrastructure & Metrics** | metric ที่ Agent เก็บ, custom metric ผ่าน DogStatsD, Metrics without Limits, dashboard |
+| **Log Management** | pipeline การเก็บกับประมวลผล log, index เทียบกับ exclusion filter, log-based metric, archive |
+| **APM & Distributed Tracing** | trace, span กับ service map, ingestion sampling เทียบกับ retention filter, trace metric, profiling |
+| **Correlating Logs, Traces & Metrics** | การ inject trace เข้า log, unified service tagging ในทางปฏิบัติ, Service Catalog, context จาก RUM |
+| **Monitors, Alerting & SLOs** | ประเภท monitor กับ threshold, composite monitor, SLO error budget กับ burn rate, Synthetics |
+| **Production & Ecosystem** | Datadog as code ด้วย Terraform, cost governance, พื้นฐาน security, checklist ก่อนขึ้น production |
+
+## วิธีอ่าน
+
+แต่ละบทเริ่มด้วยไอเดียหลักในหนึ่งประโยค แสดง Agent config, DogStatsD/API call และ CLI หรือ Terraform snippet จริง มีไดอะแกรมของกลไกที่เกี่ยวข้อง และปิดท้ายด้วย takeaway หนึ่งบรรทัดพร้อม quiz สั้น ๆ อ่านเรียงจากบนลงล่าง — module หลัง ๆ จะอ้างอิงคำศัพท์เรื่อง tagging, pipeline และ sampling จากบทแรก ๆ เหล่านี้
+
+<Callout title="The one-line takeaway">
+Datadog คือ **Agent บวก product ตระกูลหนึ่งที่สร้างอยู่บน telemetry ที่ tag เดียวกัน** — metric, log และ trace คือ pipeline แยกจากกัน แต่ละอันมี ingestion, retention และ cost control เป็นของตัวเอง และ **unified service tagging** (`env`, `service`, `version`) คือสิ่งที่ทำให้ข้อมูลของ deployable unit หนึ่งตัวเชื่อมโยงกันได้ทั้งสาม pipeline คอร์สนี้สอนกลไกจริงของแต่ละ pipeline และโมเดล correlation ที่เชื่อมมันเข้าด้วยกัน เริ่มจาก Agent เอง
+</Callout>

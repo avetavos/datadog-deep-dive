@@ -1,0 +1,103 @@
+---
+title: 'Security and Compliance Basics'
+description: 'A conceptual look at Cloud Security Management and Sensitive Data Scanner, then a concrete example of access control done right: granular RBAC permissions for Log Management.'
+sidebar:
+  order: 3
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The idea in one sentence
+
+Beyond dashboards and alerts, Datadog also covers cloud security posture and runtime threats, sensitive data detection, and fine-grained access control — and that last one directly protects the cost and reliability decisions taught earlier in this course.
+
+## Cloud Security Management, conceptually
+
+**Cloud Security Management** (CSM) works on top of telemetry and configuration you're likely already sending to Datadog, and covers two related but distinct problems:
+
+- **Posture management** — continuously checking your cloud accounts and resources for misconfigurations, like an S3 bucket left publicly readable, an overly permissive IAM policy, or a security group open to the world. These are findings about how things are *configured*, evaluated against built-in and custom rules, independent of whether anything bad has happened yet.
+- **Runtime threats** — detection rules that run against live signals from hosts, containers, and Kubernetes (process activity, file access, network connections) to catch things actually happening right now, like a container spawning an unexpected shell.
+
+The point for this course: CSM is not a separate product you bolt on with new instrumentation — it largely reuses the Agent and cloud integrations you already have configured from the Foundations module, pointed at a different rule engine.
+
+## Sensitive Data Scanner, conceptually
+
+**Sensitive Data Scanner** looks for patterns that match sensitive data — credit card numbers, email addresses, API keys, or a custom regex or keyword pattern you define — inside telemetry as it flows through Datadog, most commonly logs. When it finds a match, it can flag it, redact it, or hash it, depending on how the rule is configured, without requiring you to change what your application actually logs. This matters for compliance regimes like PCI or GDPR: you get a safety net for the sensitive data that inevitably ends up in log lines despite everyone's best intentions, instead of relying purely on discipline at the application layer.
+
+## The concrete example: granular RBAC for Log Management
+
+Security posture and data scanning are about telemetry content. **RBAC (role-based access control)** is about who can do what inside Datadog itself, and Log Management is one of the best places to see how granular that gets — because, as the Log Management module covered, decisions about what gets indexed, excluded, or archived are direct **cost** decisions, not just cosmetic ones. You don't want that lever available to everyone who just needs to search logs.
+
+A handful of the permissions Datadog exposes specifically for logs:
+
+- **`logs_modify_indexes`** — create, edit, or reorder log indexes, including their retention period and daily quota. This is the permission that controls how much you spend on indexed log volume.
+- **`logs_write_exclusion_filters`** — create or edit exclusion filters, the rules that decide which logs never get indexed at all. Also a direct cost lever, and a data-visibility lever.
+- **`logs_write_pipelines`** — create or edit Processing Pipelines, the parsing and enrichment stage from the Log Management module. Getting this wrong doesn't change cost, but it can break parsing for every log matching that pipeline's filter.
+- **`logs_write_archives`** — configure where logs get archived (for example, to cold storage in S3), separate from what gets indexed.
+- **`logs_read_archives`** — rehydrate or query from an existing archive, without being able to change where archives go or how they're configured.
+- **`logs_generate_metrics`** — create log-based metrics, turning a log query into a custom metric, without granting any ability to change what's indexed.
+- **`logs_write_facets`** — create or edit the facets used to search and filter logs in the Log Explorer.
+
+The pattern across all of these: Datadog splits "can query and read logs" from "can change what gets indexed, excluded, or archived." An application engineer investigating an incident needs to search logs freely; they don't necessarily need the ability to flip a noisy production log source from excluded to fully indexed and quietly triple next month's log bill. A platform or SRE team holding `logs_modify_indexes` and `logs_write_exclusion_filters` can make that call deliberately, with the cost tradeoff in mind, while everyone else keeps read access.
+
+<Mermaid title="Splitting read access from index/exclusion/archive control" code={securityRbacDiagram} />
+
+export const securityRbacDiagram = `flowchart LR
+  A[Engineer role] -->|logs_read_data, logs_generate_metrics, logs_write_facets| B[Search logs, build log-based metrics, edit facets]
+  C[Platform / SRE role] -->|logs_modify_indexes, logs_write_exclusion_filters, logs_write_pipelines, logs_write_archives| D[Change what is indexed, excluded, parsed, archived]
+  E[Auditor role] -->|logs_read_archives| F[Query historical archives only]
+  D -->|directly affects| G[Log Management cost from indexed volume and retention]`
+
+<Callout title="The one-line takeaway">
+Cloud Security Management watches for cloud misconfigurations and runtime threats, Sensitive Data Scanner catches sensitive patterns in telemetry like logs, and granular log permissions such as `logs_modify_indexes`, `logs_write_exclusion_filters`, and `logs_write_archives` keep the cost-sensitive levers from Log Management separate from ordinary read/query access.
+</Callout>
+
+export const quizSecurityRbac = [
+  {
+    q: 'What does Cloud Security Management (CSM) cover?',
+    options: [
+      'Only encrypting data in transit between the Agent and Datadog',
+      'Cloud misconfigurations (posture) and runtime threats on hosts, containers, and Kubernetes',
+      'Only billing anomaly detection',
+      'Only log parsing pipelines',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'What does Sensitive Data Scanner do?',
+    options: [
+      'Automatically deletes any log containing an error',
+      'Detects patterns like credit card numbers or emails in telemetry such as logs, and can flag, redact, or hash matches',
+      'Replaces the need for Processing Pipelines',
+      'Only works on metrics, never logs',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'Which permission specifically controls whether someone can create or edit exclusion filters that decide what never gets indexed?',
+    options: [
+      'logs_read_archives',
+      'logs_write_exclusion_filters',
+      'logs_generate_metrics',
+      'logs_write_facets',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'Why does Datadog separate log read/query access from permissions like `logs_modify_indexes`?',
+    options: [
+      'Because reading logs is technically impossible without admin rights',
+      'Because index, exclusion, and archive changes carry direct cost implications, so that lever shouldn\'t be open to everyone who just needs to search logs',
+      'Because Datadog charges extra for read access',
+      'There is no meaningful separation; all log permissions are equivalent',
+    ],
+    answer: 1,
+  },
+]
+
+<Quiz client:visible id="production-and-ecosystem/security-and-compliance-basics" questions={quizSecurityRbac} />
+
+<ProgressTracker client:visible id="production-and-ecosystem/security-and-compliance-basics" />

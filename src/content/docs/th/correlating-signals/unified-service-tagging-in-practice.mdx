@@ -1,0 +1,137 @@
+---
+title: 'Unified Service Tagging ในหน้างานจริง'
+description: 'env/service/version triple เดียว ตั้งครั้งเดียวผ่าน Kubernetes label กับ downward API ไหลเข้าไปหา Agent metric, APM trace และ log injection ทำให้ pivot ข้ามสาม product ของ Datadog ได้โดยไม่ต้อง cross-reference เอง'
+sidebar:
+  order: 2
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ไอเดียหลักในหนึ่งประโยค
+
+ตั้งค่า `env`, `service` และ `version` ครั้งเดียวบน deployable unit หนึ่งตัว แล้ว triple เดียวกันนั้นคือสิ่งที่ทำให้ metrics dashboard, APM service page และ Logs Explorer เห็นตรงกันว่ากำลังดู service ตัวไหนอยู่
+
+## deployable unit หนึ่งตัว ติด tag ครั้งเดียว
+
+ยกตัวอย่าง deployable unit ตัวเดียวคือ `checkout-service` แล้วติด tag ด้วย `DD_ENV=production`, `DD_SERVICE=checkout-service` และ `DD_VERSION=2.4.1` แทนที่จะ hardcode ค่าสามตัวนี้ไว้หลายจุด ใช้ pattern Kubernetes label/downward-API เดียวกับที่เจอใน module Foundations ตั้งค่าครั้งเดียวบน pod แล้วสะท้อนเข้า environment variable
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout-service
+spec:
+  template:
+    metadata:
+      labels:
+        tags.datadoghq.com/env: "production"
+        tags.datadoghq.com/service: "checkout-service"
+        tags.datadoghq.com/version: "2.4.1"
+    spec:
+      containers:
+        - name: checkout-service
+          image: registry.example.com/checkout-service:2.4.1
+          env:
+            - name: DD_ENV
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['tags.datadoghq.com/env']
+            - name: DD_SERVICE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['tags.datadoghq.com/service']
+            - name: DD_VERSION
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['tags.datadoghq.com/version']
+```
+
+label คือ single source of truth downward API สะท้อน label กลับเข้าไปเป็น `DD_ENV`/`DD_SERVICE`/`DD_VERSION` ทำให้ environment variable พวกนี้ตรงกับสิ่งที่ Kubernetes — และ autodiscovery ของ Agent — เห็นบน pod อยู่แล้วเสมอ แก้ label จุดเดียว แล้วทุกอย่างที่ใช้ค่านี้ได้ค่าใหม่ทันทีตอน rollout รอบถัดไป
+
+## สามผู้ใช้ identity เดียวกัน
+
+- **infrastructure/container metric ของ Agent** — autodiscovery ติด tag ให้ container/infra metric ตรงจาก label ของ pod เอง metric อย่าง CPU, memory, request rate ของ pod `checkout-service` เลยพก `env`, `service`, `version` ไปด้วยโดยไม่ต้องตั้งค่าแยก
+- **tracer initialization สำหรับ APM** — `dd-trace` อ่าน `DD_ENV`, `DD_SERVICE` และ `DD_VERSION` จาก environment ให้อัตโนมัติ span ทุกอันที่มันสร้างเลยติด triple เดียวกัน
+
+```javascript
+// dd-trace picks up DD_ENV, DD_SERVICE, and DD_VERSION from the environment automatically
+require('dd-trace').init({
+  log_injection: true
+});
+```
+
+- **log integration จากบทที่แล้ว** — เพราะ log injection อ่าน config service เดียวกันกับที่ tracer ใช้ ฟิลด์ `dd.env`, `dd.service`, `dd.version` ที่แปะบน log ทุกบรรทัดก็เลยเป็น triple เดียวกันเป๊ะ
+
+## การ pivot: triple เดียว สาม product ไม่ต้อง cross-reference เอง
+
+พอ triple ไหลเข้าไปหาทั้งสาม product ลอง walk เหตุการณ์หนึ่งดู — เริ่มที่ metrics dashboard ที่ scope ด้วย `service:checkout-service env:production` เห็น CPU, latency, request rate พุ่งขึ้น กดต่อไปที่ APM service page ของ `service`, `env`, `version` เดียวกัน เห็น trace latency, error rate และเพื่อนบ้านของ service บน service map กดต่อไปที่ Logs Explorer ที่ prefilter ด้วย triple เดียวกัน เห็น log บรรทัดจริง — รวมถึง error ที่ติด `dd.trace_id` จากบทที่แล้ว — ของ version นั้นใน env นั้น
+
+เทียบกับสภาพก่อนหน้า — metric ติด `service:checkout` แต่ tracer ฝั่ง Java ติด `service:checkout-svc` ส่วน log ติด `application:checkout` ไม่มีอะไรตรงกันเลย คนที่กำลัง debug ต้องจำสามชื่อต่างกันเวลาสลับไปมาระหว่าง product หลังติด tag ให้ตรงกัน — string เดียวกันเป๊ะทุกที่ ทุก product เลย pre-filter ไปที่ identity เดียวกันได้ทันที saved view ใน product หนึ่งอธิบาย slice เดียวกันของโลกใน product อื่นได้เลย
+
+<Mermaid title="One triple, three products" code={ustPracticeDiagramTh} />
+
+export const ustPracticeDiagramTh = `flowchart LR
+  T["env=production\\nservice=checkout-service\\nversion=2.4.1"] --> Agent[Agent autodiscovery]
+  T --> Tracer[Tracer init]
+  T --> LogInj[Log injection]
+  Agent --> M[Metrics dashboard]
+  Tracer --> A[APM service page]
+  LogInj --> L[Logs Explorer]
+  M -.pivot.-> A
+  A -.pivot.-> L
+  L -.pivot.-> M
+`
+
+<Callout title="The one-line takeaway">
+`env`, `service` และ `version` ที่ตั้งครั้งเดียวบน deployable unit — ผ่าน Kubernetes label กับ downward API pattern เดียวกับใน Foundations — ไหลเข้าไปหา Agent metric, tracer initialization และ log injection เองอัตโนมัติ ทำให้ metrics dashboard, APM service page และ Logs Explorer อธิบาย slice เดียวกันของโลกเป๊ะ ๆ โดยไม่ต้อง cross-reference เอง
+</Callout>
+
+export const quizUstPracticeTh = [
+  {
+    q: 'ในตัวอย่าง Kubernetes ทำไม DD_ENV, DD_SERVICE และ DD_VERSION ถึงตั้งผ่าน fieldRef ไปที่ pod label แทนที่จะ hardcode string ตรง ๆ',
+    options: [
+      'hardcode string ทำงานเร็วกว่าตอน runtime',
+      'ทำให้ label เป็น single source of truth จุดเดียวที่ต้องแก้ identity แทนที่จะต้องแก้หลายที่',
+      'dd-trace บังคับให้ต้องใช้ fieldRef เท่านั้น หลีกเลี่ยงไม่ได้',
+      'Kubernetes ไม่อนุญาตให้ตั้งค่า environment variable แบบ static'
+    ],
+    answer: 1
+  },
+  {
+    q: 'พอ DD_ENV/DD_SERVICE/DD_VERSION ถูกตั้งไว้ใน environment ของ container แล้ว tracer initialization ต้องทำอะไรเพิ่มเพื่อให้อ่านค่านั้นได้',
+    options: [
+      'ไม่ต้องทำอะไรเพิ่ม — dd-trace อ่านจาก environment ให้อัตโนมัติ',
+      'ต้องส่งค่าเข้า init() ตรง ๆ ทุกครั้ง',
+      'ต้องเรียก tagging API แยกต่างหากหลัง init()',
+      'Agent ต้อง forward ค่าพวกนี้ไปให้ tracer ผ่าน socket'
+    ],
+    answer: 0
+  },
+  {
+    q: 'อะไรทำให้การ pivot แบบ "ไม่ต้อง cross-reference เอง" ระหว่าง metric, APM และ log พังไป',
+    options: [
+      'ใช้ string env/service/version ตัวเดียวกันเป๊ะทั้งสาม product',
+      'ติด tag metric ด้วย service:checkout, trace ด้วย service:checkout-svc และ log ด้วย application:checkout',
+      'ตั้ง DD_VERSION ให้ตรงกับ image tag ที่ deploy จริง',
+      'ใช้ Kubernetes label เป็น source of truth ของ tag'
+    ],
+    answer: 1
+  },
+  {
+    q: 'payoff จริง ๆ ของการมี env/service/version triple ตรงกันทั้ง metric, APM และ log คืออะไร',
+    options: [
+      'Agent เริ่มทำงานเร็วขึ้น',
+      'ค่าใช้จ่าย Datadog ลดลง',
+      'metrics dashboard, APM service page และ Logs Explorer scope ไปที่ service+env+version เดียวกันได้เป๊ะ โดยไม่ต้อง map เอง',
+      'rollback deployment ที่พังอัตโนมัติ'
+    ],
+    answer: 2
+  }
+]
+
+<Quiz client:visible id="correlating-signals/unified-service-tagging-in-practice" questions={quizUstPracticeTh} />
+
+<ProgressTracker client:visible id="correlating-signals/unified-service-tagging-in-practice" />

@@ -1,0 +1,103 @@
+---
+title: 'Agent-Collected Metrics and Checks'
+description: 'How the Datadog Agent collects built-in system metrics and how integration checks submit metrics using the check API — gauge, count, rate, and histogram.'
+sidebar:
+  order: 1
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The idea in one sentence
+
+Every metric that shows up on a host in Datadog was either collected automatically by the Agent's built-in system checks, or submitted by an integration check running one of a small set of check API methods on a fixed collection interval.
+
+## Built-in system metrics
+
+The moment the Agent starts, it runs a handful of **core checks** with no configuration required — `cpu`, `memory`, `disk`, `network`, `io`, and a few more. These produce the metrics you see on a host dashboard without installing anything: `system.cpu.user`, `system.cpu.system`, `system.mem.used`, `system.mem.free`, `system.disk.used`, `system.net.bytes_rcvd`, and so on. This is why a freshly installed Agent already has data flowing before you configure a single integration — the host-level picture is always there.
+
+On top of the core checks, the Agent ships with **integrations** — Python-based checks for specific technologies (`postgres`, `redis`, `nginx`, `kafka`, and hundreds more). An integration check is only active if you drop a config file for it (typically in `conf.d/<integration>.d/conf.yaml`) and the Agent detects the config on the next check run. Enabling the `postgres` integration, for example, is what makes metrics like `postgresql.connections` or `postgresql.rows_returned` start appearing — there is no automatic discovery of "a postgres is running here" without that config.
+
+## The check API: gauge, count, rate, histogram
+
+Every check — built-in or integration — is a small Python class that runs on a schedule and calls a handful of methods on `self` to submit values. These are the same four verbs you will use conceptually again in DogStatsD later:
+
+```python
+from datadog_checks.base import AgentCheck
+
+class MyServiceCheck(AgentCheck):
+    def check(self, instance):
+        # a point-in-time value, e.g. current connection count
+        self.gauge('myservice.connections.active', 42, tags=['env:prod'])
+
+        # an incrementing counter since the last check run
+        self.count('myservice.requests.total', 137, tags=['env:prod'])
+
+        # count normalized to "per second" by the Agent
+        self.rate('myservice.errors.rate', 3, tags=['env:prod'])
+
+        # distribution of a value observed during this check run
+        self.histogram('myservice.query.duration', 0.045, tags=['env:prod'])
+```
+
+- **`gauge`** — reports the current value of something at this instant, like a fuel gauge. Only the last value in the interval matters.
+- **`count`** — reports a raw number of occurrences during the check run. The Agent does not divide by time; you are submitting a count as-is.
+- **`rate`** — like `count`, but the Agent divides by the elapsed time between runs so the metric arrives in Datadog already normalized to a per-second rate.
+- **`histogram`** — reports a distribution of values seen during one check run, which the Agent aggregates client-side into a handful of derived metrics (average, max, percentiles, count) — the same client-side aggregation behavior you will see again with DogStatsD histograms.
+
+## The ~15 second collection interval
+
+By default, every check the Agent runs is scheduled on a **15-second collection interval** — the Agent wakes the check up, it calls `self.gauge(...)` / `self.count(...)` / etc. for whatever it observed since the last run, and the Agent flushes those values upstream. This interval is configurable per-check (`min_collection_interval` in the check's config), but 15 seconds is the default you should assume unless a config says otherwise. This matters for `rate` and `count` in particular — the numbers those methods compute or report are only meaningful in the context of "since the last collection interval," so changing the interval changes how those values are interpreted, not just how often they arrive.
+
+<Mermaid title="Where a host's metrics come from" code={agentChecksDiagram} />
+
+export const agentChecksDiagram = `flowchart LR
+  A[Agent process] -->|runs every ~15s| B[Core checks: cpu, memory, disk, network]
+  A -->|runs every ~15s| C[Integration checks: postgres, redis, nginx, ...]
+  B -->|self.gauge / self.rate| D[system.* metrics]
+  C -->|self.gauge / self.count / self.rate / self.histogram| E[integration.* metrics]
+  D --> F[Datadog backend]
+  E --> F`
+
+<Callout title="The one-line takeaway">
+Host-level metrics come from the Agent's **core checks** running automatically, integration-specific metrics come from **checks** you enable with a config file, and both submit values through the same four check API verbs — `gauge`, `count`, `rate`, `histogram` — on a default **~15 second** collection interval.
+</Callout>
+
+export const quizAgentChecks = [
+  {
+    q: 'Which metric type would you use in a check to report the current number of active connections?',
+    options: ['count', 'rate', 'gauge', 'histogram'],
+    answer: 2,
+  },
+  {
+    q: 'What is the default collection interval for an Agent check?',
+    options: ['1 second', '~15 seconds', '60 seconds', '5 minutes'],
+    answer: 1,
+  },
+  {
+    q: 'Why does a metric like `postgresql.connections` not appear automatically on every host?',
+    options: [
+      'It requires a paid Datadog plan',
+      'It only appears once you configure the postgres integration check on that host',
+      'It is a DogStatsD-only metric',
+      'It requires APM tracing to be enabled first',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'What is the key difference between `self.count(...)` and `self.rate(...)` in a check?',
+    options: [
+      '`count` only works for integers, `rate` works for floats',
+      '`rate` divides the value by elapsed time to produce a per-second figure, `count` reports the raw number',
+      'They are exact aliases of each other',
+      '`rate` is only available in DogStatsD, not in checks',
+    ],
+    answer: 1,
+  },
+]
+
+<Quiz client:visible id="infrastructure-and-metrics/agent-collected-metrics-and-checks" questions={quizAgentChecks} />
+
+<ProgressTracker client:visible id="infrastructure-and-metrics/agent-collected-metrics-and-checks" />

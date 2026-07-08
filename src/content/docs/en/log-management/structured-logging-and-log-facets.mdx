@@ -1,0 +1,121 @@
+---
+title: 'Structured Logging and Log Facets'
+description: 'Why JSON/structured logs make attribute extraction reliable, how attributes become Facets in the Logs Explorer, and why Log Analytics aggregations require indexed logs.'
+sidebar:
+  order: 4
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The idea in one sentence
+
+Structured (JSON) logs let a Processing Pipeline extract typed attributes reliably instead of relying on fragile Grok parsing of free text, and those attributes become **Facets** you can filter, group, and aggregate on in the Logs Explorer — but only for logs that actually reach an index.
+
+## Why structure beats Grok on free text
+
+A Grok Parser can pull attributes out of an unstructured line like `2024-01-15 ERROR user=42 duration=812ms checkout failed`, but every pattern is a bet on the log staying in that exact shape. Add a word, reorder a field, or have one service log slightly differently than another, and the Grok pattern silently stops matching — or worse, matches wrong.
+
+A structured log sidesteps that bet entirely, because the fields already have names and types before Datadog sees them:
+
+```json
+{
+  "timestamp": "2024-01-15T10:22:31Z",
+  "level": "error",
+  "service": "checkout-api",
+  "user": { "id": 42 },
+  "duration_ms": 812,
+  "message": "checkout failed"
+}
+```
+
+Here a Processing Pipeline doesn't need a Grok Parser at all for the fields that are already named keys — `level`, `service`, `user.id`, `duration_ms` arrive as typed attributes automatically. Grok is still useful for the parts of a message that remain free text (the `message` field itself, or logs from systems you don't control the format of), but the reliable path for anything you do control is to log JSON in the first place.
+
+## Attributes become Facets
+
+Once a log has structured attributes — whether pulled out by Grok or native JSON fields — Datadog can turn a given attribute into a **Facet**: a field the Logs Explorer treats as filterable, groupable, and chartable, the same way you'd facet search results on any site. Faceting on `status_code` lets you filter to `status_code:500` or group a search by `status_code` to see a breakdown; faceting on `service` lets you slice any query by which service produced each log.
+
+Consistent structure across services is what makes faceting actually useful at the org level. If one service calls it `status_code`, another calls it `httpStatus`, and a third buries it in an unparsed message string, you cannot facet across all three consistently. This is why remapping matters as part of getting logs into a consistent shape:
+
+- **Status Remapper** — maps whatever severity field a service uses (`level`, `severity`, `log.level`, ...) onto Datadog's standard `status` facet, so "show me all errors across every service" is one query instead of one query per service.
+- **Message Remapper** — designates which attribute is the log's primary human-readable message, so the Logs Explorer shows something sensible in the message column regardless of what the source service happened to call that field.
+
+## Log Analytics only sees indexed logs
+
+This is the fact that ties directly back to the previous lesson: **Log Analytics** — group-by breakdowns, computed measures, and other aggregations over a facet — only operates over logs that are actually indexed. An Exclusion Filter that keeps `level:debug` logs out of an index doesn't just hide them from raw search; it also means those logs cannot appear in any Log Analytics aggregation, because there is nothing indexed to aggregate over.
+
+If you need to slice-and-dice a field on logs an Exclusion Filter normally drops, you have exactly the same three options the previous lesson already gave you, applied to this specific need:
+
+1. Temporarily disable or narrow the Exclusion Filter so the logs you need to analyze actually get indexed.
+2. Generate a log-based metric instead — a COUNT or DISTRIBUTION computed off the full ingest stream gives you a trend without needing the logs indexed at all.
+3. Rehydrate the relevant time range from a Log Archive into a temporary index, run the analysis, then let the temporary index expire.
+
+```text
+Want to group-by @http.status_code on logs currently excluded by level:debug filter?
+-> Option 1: relax the Exclusion Filter (costs indexing $$, gets full Log Analytics)
+-> Option 2: log-based metric on @http.status_code (cheap, but only pre-defined aggregations)
+-> Option 3: Rehydrate the time range (temporary cost, full Log Analytics for that window)
+```
+
+<Mermaid title="From structured field to facet to analytics" code={facetsDiagram} />
+
+export const facetsDiagram = `flowchart LR
+  A["JSON log\\nlevel, service, duration_ms"] --> B[Processing Pipeline\\nStatus Remapper, Message Remapper]
+  B --> C[Typed attributes]
+  C --> D[Facets in Logs Explorer\\nfilter / group / chart]
+  D --> E{Log actually indexed?}
+  E -->|yes| F[Log Analytics: group-by,\\ncomputed measures work]
+  E -->|no, excluded| G[No Log Analytics\\nuse log-based metric or Rehydration]`
+
+<Callout title="The one-line takeaway">
+Structured (JSON) logs make attribute extraction reliable instead of Grok-fragile, consistent attributes (via Status Remapper, Message Remapper, and friends) become **Facets** you can filter and group on, and **Log Analytics aggregations only work over indexed logs** — so a field hidden by an Exclusion Filter needs a relaxed filter, a log-based metric, or a Rehydration before you can group-by it.
+</Callout>
+
+export const quizStructuredLoggingFacets = [
+  {
+    q: 'Why is a native JSON log field more reliable than a Grok-parsed field from free text?',
+    options: [
+      'JSON logs are always smaller in size',
+      'The field already has a name and type before Datadog sees it, so it does not depend on a pattern matching an exact text shape',
+      'Grok Parsers cannot run on JSON logs at all',
+      'JSON logs skip the Processing Pipeline entirely',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'What is a Facet in the Logs Explorer?',
+    options: [
+      'A raw, unparsed log line',
+      'A field derived from a log attribute that can be filtered, grouped, and charted on',
+      'A synonym for a Log Archive',
+      'A type of Agent processing rule',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'What does the Status Remapper accomplish across multiple services?',
+    options: [
+      'It deletes logs below a certain severity',
+      'It maps each service\'s own severity field naming onto Datadog\'s standard status facet, so error queries work consistently across services',
+      'It changes an index\'s retention_days',
+      'It converts logs into JSON automatically',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'A field is excluded from an index by an Exclusion Filter. What happens to Log Analytics group-by on that field?',
+    options: [
+      'It still works normally because Log Analytics reads the full ingest stream',
+      'It stops working for those logs, because Log Analytics aggregations only operate over indexed logs',
+      'It automatically falls back to a log-based metric with no changes needed',
+      'It only affects DISTRIBUTION metrics, not group-by',
+    ],
+    answer: 1,
+  },
+]
+
+<Quiz client:visible id="log-management/structured-logging-and-log-facets" questions={quizStructuredLoggingFacets} />
+
+<ProgressTracker client:visible id="log-management/structured-logging-and-log-facets" />

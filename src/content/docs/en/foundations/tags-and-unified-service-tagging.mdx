@@ -1,0 +1,146 @@
+---
+title: 'Tags and Unified Service Tagging'
+description: 'Tagging fundamentals, cardinality caution, and unified service tagging with env/service/version across metrics, logs, and traces via DD_ENV/DD_SERVICE/DD_VERSION and Kubernetes labels.'
+sidebar:
+  order: 4
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The idea in one sentence
+
+A tag is just `key:value`, but three specific tags — `env`, `service`, and `version` — applied the same way across metrics, logs, and traces are what let you pivot from one signal to another for the same deployable unit, which is the foundation the whole "correlating signals" part of this course is built on.
+
+## Tagging fundamentals
+
+Every metric, log, and trace in Datadog can carry tags, written as `key:value` — `env:prod`, `region:ap-southeast-1`, `team:payments`. Tags come from a few places:
+
+- **Host tags** — attached automatically by the Agent (hostname, OS, cloud provider/instance metadata) or configured once in `datadog.yaml`.
+- **Integration tags** — added by a check's config, like the `service:orders-db` tag in the Postgres example from the previous lesson.
+- **Custom tags** — anything you add yourself, on a host, a container, or directly on a metric submission.
+
+Tags are what make Datadog's UI usable at scale: instead of hunting through a list of 4,000 hosts, you filter by `env:prod AND team:payments` and get exactly the slice you need. This works identically whether you're looking at Infrastructure, Logs, or APM — same tags, same filtering syntax, everywhere.
+
+## Cardinality: the tag you should not add
+
+Not every piece of data should become a tag value. Datadog tracks time series (and indexed log facets) per unique combination of tag values, so a tag whose value is different for basically every event — a raw user ID, a request ID, a full URL with query parameters — creates a new time series or facet value for almost every data point. This is called **high cardinality**, and it's expensive in two ways: it inflates your custom-metrics bill (each unique tag combination on a metric is its own billed series), and it makes the UI *less* useful, because a tag filter dropdown with a million distinct values stops being something a human can actually use to narrow things down.
+
+The rule of thumb: tag by things you'd actually want to filter or group by — `env`, `service`, `version`, `region`, `team`, `endpoint` (as a normalized route pattern, not a raw path) — and put genuinely unique identifiers (user ID, request ID, order ID) in the log message or a trace attribute instead of a tag.
+
+## Unified service tagging
+
+This is the tagging convention the rest of this course depends on. Three tag keys are reserved and treated specially across every Datadog product:
+
+- **`env`** — which environment this is running in (`prod`, `staging`, `dev`).
+- **`service`** — the name of the deployable unit (`orders-api`, `checkout-worker`).
+- **`version`** — the specific build/release of that service (`1.4.2`, a git SHA, whatever your release process produces).
+
+The reason these three exist as a dedicated convention rather than just being "tags you could add yourself" is correlation: when a host's Agent, an application's tracer, and a log shipper all apply the *exact same* `env`, `service`, and `version` values to their respective telemetry, Datadog can join them. You look at a spike in `orders-api`'s error-rate metric for `env:prod, version:1.4.2`, jump straight to the traces carrying those same three tags, and from there to the exact log lines emitted during those requests — without ever hand-correlating timestamps or hostnames yourself. That pivot only works because the tag *values*, not just the keys, match exactly across all three telemetry types — a typo like `Prod` vs `prod` silently breaks the join.
+
+<Mermaid title="Unified service tagging ties telemetry together" code={ustDiagramEn} />
+
+export const ustDiagramEn = `flowchart LR
+    subgraph Tags["env:prod  service:orders-api  version:1.4.2"]
+      M["Metrics"]
+      T["Traces"]
+      L["Logs"]
+    end
+    M -.same 3 tags.-> T
+    T -.same 3 tags.-> L
+    L -.same 3 tags.-> M
+`
+
+## Setting it consistently: env vars and Kubernetes labels
+
+On a plain host or a single container, unified service tagging is set through three environment variables that the Agent and tracer both read:
+
+```bash
+export DD_ENV="prod"
+export DD_SERVICE="orders-api"
+export DD_VERSION="1.4.2"
+```
+
+In Kubernetes, the equivalent is a set of labels on the Deployment and Pod template — `tags.datadoghq.com/env`, `tags.datadoghq.com/service`, `tags.datadoghq.com/version` — and those same values are then re-injected as `DD_ENV`/`DD_SERVICE`/`DD_VERSION` environment variables using the Kubernetes **downward API**, so the tracer inside the container sees them too:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    tags.datadoghq.com/env: "prod"
+    tags.datadoghq.com/service: "orders-api"
+    tags.datadoghq.com/version: "1.4.2"
+spec:
+  template:
+    metadata:
+      labels:
+        tags.datadoghq.com/env: "prod"
+        tags.datadoghq.com/service: "orders-api"
+        tags.datadoghq.com/version: "1.4.2"
+    spec:
+      containers:
+        - name: my-app
+          env:
+            - name: DD_ENV
+              valueFrom: { fieldRef: { fieldPath: "metadata.labels['tags.datadoghq.com/env']" } }
+            - name: DD_SERVICE
+              valueFrom: { fieldRef: { fieldPath: "metadata.labels['tags.datadoghq.com/service']" } }
+            - name: DD_VERSION
+              valueFrom: { fieldRef: { fieldPath: "metadata.labels['tags.datadoghq.com/version']" } }
+```
+
+The label lives in two places (Deployment metadata and Pod template metadata) because the Agent's Autodiscovery reads pod labels directly for host/container-level tagging, while the downward API projection is what gets the *same* values into the process's own environment for the tracer to pick up — one source of truth, two consumers.
+
+<Callout title="The one-line takeaway">
+A tag is `key:value` — keep tag values low-cardinality, and reserve genuinely unique identifiers for log messages or trace attributes instead. **Unified service tagging** (`env`, `service`, `version`), applied identically via `DD_ENV`/`DD_SERVICE`/`DD_VERSION` or the matching `tags.datadoghq.com/*` Kubernetes labels, is what lets you pivot from a metric to its traces to its logs for the same deployable unit — the mechanism the rest of this course's correlation module relies on.
+</Callout>
+
+export const quizTagsEn = [
+  {
+    q: 'Why is a raw user ID a risky choice for a tag value?',
+    options: [
+      'Tags can only be numbers',
+      'It creates near-unique values per event (high cardinality), inflating cost and making filters unusable',
+      'User IDs cannot be sent to Datadog at all',
+      'It would overwrite the env tag'
+    ],
+    answer: 1
+  },
+  {
+    q: 'Which three tags make up unified service tagging?',
+    options: [
+      'host, region, team',
+      'env, service, version',
+      'metric, log, trace',
+      'api_key, app_key, site'
+    ],
+    answer: 1
+  },
+  {
+    q: 'Why does unified service tagging let you pivot from a metric to its traces to its logs?',
+    options: [
+      'Because Datadog stores all telemetry types in one combined table by default',
+      'Because the same env/service/version tag values are applied identically across metrics, traces, and logs, so Datadog can join on them',
+      'Because the Trace Agent automatically renames all tags to match',
+      'Because it only works within a single host'
+    ],
+    answer: 1
+  },
+  {
+    q: 'In the Kubernetes example, why are the tags.datadoghq.com/* labels also re-injected as DD_ENV/DD_SERVICE/DD_VERSION env vars via the downward API?',
+    options: [
+      'Env vars are required by Kubernetes for all Deployments',
+      'So the tracer running inside the container process also gets the same values, not just the Agent reading pod labels',
+      'Because labels cannot contain a version string',
+      'To satisfy the Software Catalog UI only'
+    ],
+    answer: 1
+  }
+]
+
+<Quiz client:visible id="foundations/tags-and-unified-service-tagging" questions={quizTagsEn} />
+
+<ProgressTracker client:visible id="foundations/tags-and-unified-service-tagging" />

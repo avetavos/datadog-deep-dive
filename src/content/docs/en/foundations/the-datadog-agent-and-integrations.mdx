@@ -1,0 +1,187 @@
+---
+title: 'The Datadog Agent and Integrations'
+description: 'The Agent''s component processes, checks/integrations under conf.d/, Autodiscovery for containers, install methods, and basic troubleshooting commands.'
+sidebar:
+  order: 3
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The idea in one sentence
+
+The "Agent" is not one process but a small family of them — core Agent, Trace Agent, Process Agent, and optionally a Security Agent — each collecting a different kind of telemetry, with **checks** and **Autodiscovery** deciding what gets collected and from where.
+
+## The Agent's component processes
+
+When people say "install the Datadog Agent," they mean a package that brings up several cooperating processes, each with a narrow job:
+
+- **Core Agent** — collects host/system metrics (CPU, memory, disk, network) and runs **checks** against configured integrations. This is the process that reads your `conf.d/` configuration.
+- **Trace Agent** — listens locally for spans emitted by your application's tracing library, batches them, and forwards them to Datadog's APM intake. Your app never talks to Datadog directly for traces — it talks to the Trace Agent.
+- **Process Agent** — collects live process-level data (what's running, its resource usage) that powers the Live Processes view.
+- **Security Agent** *(optional)* — runs Cloud Security Posture Management and threat-detection workloads when Datadog Cloud Security is enabled.
+
+These run as one installed unit but are separate OS processes underneath, which is why the status command (below) reports on each of them individually.
+
+<Mermaid title="Agent component processes" code={agentDiagramEn} />
+
+export const agentDiagramEn = `flowchart TB
+    subgraph Host["Host / Pod"]
+      Core["Core Agent\n(metrics + checks)"]
+      Trace["Trace Agent\n(receives spans)"]
+      Proc["Process Agent\n(live processes)"]
+      Sec["Security Agent\n(optional)"]
+    end
+    App["Instrumented app"] -->|spans| Trace
+    Core -->|checks read| ConfD["conf.d/*.d/conf.yaml"]
+    Core --> Backend["Datadog Backend"]
+    Trace --> Backend
+    Proc --> Backend
+    Sec --> Backend
+`
+
+## Checks and integrations
+
+A **check** is a small piece of code (Python, bundled with the Agent) that knows how to talk to a specific service — Postgres, Redis, NGINX, Kafka, and hundreds of others — and turn its internal state into Datadog metrics. Each check is configured through a YAML file under the Agent's `conf.d/` directory, in a folder named after the integration:
+
+```yaml
+# conf.d/postgres.d/conf.yaml
+init_config:
+
+instances:
+  - host: localhost
+    port: 5432
+    username: datadog
+    password: "<PASSWORD>"
+    tags:
+      - "env:prod"
+      - "service:orders-db"
+```
+
+```yaml
+# conf.d/redis.d/conf.yaml
+init_config:
+
+instances:
+  - host: localhost
+    port: 6379
+    tags:
+      - "env:prod"
+      - "service:orders-cache"
+```
+
+Once that file exists and the Agent restarts (or picks up the change), it starts running the `postgres` or `redis` check on a schedule and submitting metrics like `postgresql.connections` or `redis.mem.used` — tagged with whatever you put under `tags`, plus the Agent's own host tags.
+
+## Autodiscovery
+
+Static `conf.d/` files work fine for a host that runs the same services forever. They break down the moment services are containers that start, stop, and reschedule constantly — you can't hand-write a config file for a Postgres pod that might not exist five minutes from now. **Autodiscovery** solves this: the Agent watches for containers/pods and matches them against **config templates** attached as annotations, generating (and tearing down) check configs automatically as the matching containers come and go.
+
+This is exactly what an annotation block like this is doing on a Kubernetes Service in front of NGINX:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  annotations:
+    ad.datadoghq.com/nginx.checks: |
+      {
+        "nginx": {
+          "init_config": {},
+          "instances": [
+            {
+              "nginx_status_url": "http://%%host%%:81/nginx_status/"
+            }
+          ]
+        }
+      }
+spec:
+  selector:
+    app: nginx
+  ports:
+    - port: 81
+```
+
+The Agent reads the `ad.datadoghq.com/<container-name>.checks` annotation, substitutes template variables like `%%host%%` with the actual pod IP at runtime, and starts the `nginx` check against whichever pod currently matches — no manual `conf.d/` editing, no restart-per-pod. This is the same underlying mechanism as the static YAML files above, just generated dynamically instead of hand-written.
+
+## Install methods and troubleshooting
+
+The Agent ships through a few common paths, chosen by where it needs to run:
+
+```bash
+# Host package install (Debian/Ubuntu, one-line installer)
+DD_API_KEY=<API_KEY> DD_SITE="datadoghq.com" bash -c \
+  "$(curl -L https://install.datadoghq.com/scripts/install_script_agent7.sh)"
+
+# Docker Agent container
+docker run -d --name datadog-agent \
+  -e DD_API_KEY=<API_KEY> -e DD_SITE="datadoghq.com" \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  gcr.io/datadoghq/agent:7
+
+# Kubernetes, via the official Helm chart
+helm repo add datadog https://helm.datadoghq.com
+helm install datadog-agent datadog/datadog \
+  --set datadog.apiKey=<API_KEY> --set datadog.site="datadoghq.com"
+```
+
+Once it's running, two commands answer almost every "is the Agent working?" question:
+
+```bash
+# Full status: which checks ran, when, any errors, each component process's health
+sudo datadog-agent status
+
+# Run one check once, in the foreground, with verbose output — the fastest
+# way to see exactly what a specific integration is doing (or failing to do)
+sudo datadog-agent check postgres
+```
+
+`status` is the first thing to run when metrics seem missing — it shows every check's last run time and any collection errors. `check <name>` is the tool for iterating on a single integration's config without waiting for the next scheduled run.
+
+<Callout title="The one-line takeaway">
+The Agent is really **several cooperating processes** — core Agent for host metrics and checks, Trace Agent for spans, Process Agent for live processes — and **checks/integrations** (static in `conf.d/`, or dynamic via **Autodiscovery** annotations on containers) are what decide what actually gets collected; `datadog-agent status` and `datadog-agent check <name>` are your first two debugging commands.
+</Callout>
+
+export const quizAgentEn = [
+  {
+    q: 'Which Agent component receives spans emitted by an instrumented application?',
+    options: ['Core Agent', 'Trace Agent', 'Process Agent', 'Security Agent'],
+    answer: 1
+  },
+  {
+    q: 'Where does a static check configuration for the Postgres integration normally live?',
+    options: [
+      'conf.d/postgres.d/conf.yaml',
+      'A Kubernetes Service annotation only',
+      'The Trace Agent\'s binary',
+      'An environment variable named DD_POSTGRES'
+    ],
+    answer: 0
+  },
+  {
+    q: 'Why does Autodiscovery exist instead of just hand-writing conf.d/ files for every service?',
+    options: [
+      'It is required for host-only installs with no containers',
+      'It lets check configs be generated and torn down automatically as containers/pods start, stop, and reschedule',
+      'It replaces the need for an API key',
+      'It only works for the nginx integration'
+    ],
+    answer: 1
+  },
+  {
+    q: 'You suspect the redis check is not running. What is the fastest first command to check?',
+    options: [
+      'sudo datadog-agent status',
+      'helm upgrade datadog-agent',
+      'curl the Datadog API directly',
+      'Restart the entire Kubernetes cluster'
+    ],
+    answer: 0
+  }
+]
+
+<Quiz client:visible id="foundations/the-datadog-agent-and-integrations" questions={quizAgentEn} />
+
+<ProgressTracker client:visible id="foundations/the-datadog-agent-and-integrations" />

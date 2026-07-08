@@ -1,0 +1,97 @@
+---
+title: 'Metrics without Limits and Tag Cardinality'
+description: 'Why custom metric cost is driven by tag cardinality, not raw ingestion volume, and how Metrics without Limits lets you control which tags are queryable per metric.'
+sidebar:
+  order: 3
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The idea in one sentence
+
+The real cost driver for custom metrics is **tag cardinality** — how many distinct tag-value combinations get indexed and made queryable — not how many raw data points you ingest.
+
+## Cardinality is the cost, not volume
+
+It's tempting to think of metric cost the way you'd think of log or trace cost — more data points, more money. Custom metrics don't quite work that way. A metric name combined with **every unique combination of tag values** it's submitted with becomes a distinct time series that Datadog has to index so you can query and graph it. If you tag a metric with something low-cardinality like `env` (a handful of values: `prod`, `staging`, `dev`), you get a handful of time series. If you tag the same metric with `pod_name` in a Kubernetes cluster that churns through thousands of pod names a day, you can generate an enormous number of distinct time series from a single metric name — and that combinatorial explosion, not the raw submission volume, is what drives custom metric billing.
+
+## What Metrics without Limits actually does
+
+**Metrics without Limits** decouples "what tags did I submit with this metric" from "what tags are actually indexed and queryable for this metric in Datadog." In practice: you can keep submitting a metric with a high-cardinality tag like `pod_name` from your application or DogStatsD client — nothing about your instrumentation has to change — and then, in the Datadog UI (or via API/Terraform), configure that specific metric to only index a chosen subset of tags, say `service` and `env`. Datadog still ingests the raw submissions, but the queryable time series for that metric collapse down to the low-cardinality combination you configured, and that's what you're billed against.
+
+The important part: this configuration is **per custom metric**, and it is **non-destructive and reversible**. If a few weeks later you're debugging a problem and need to slice that same metric `by pod_name` for deeper investigation, you can turn that tag back on for querying — you are not lost forever just because it wasn't indexed yesterday, and you never had to touch application code or redeploy anything to make that change. This is the whole point: instrument liberally with high-cardinality tags up front, then control cost by choosing what's queryable, and adjust that choice later without re-instrumenting.
+
+```text
+Metric: myservice.request.duration
+Submitted tags:   env, service, pod_name, availability_zone
+Indexed tags (configured today):  env, service
+  -> queryable combinations: small, low cost
+Indexed tags (turned on later, for an investigation): env, service, pod_name
+  -> queryable combinations: large, higher cost, but only while you need it
+```
+
+## Percentile aggregation at query time
+
+A related idea that trips people up alongside cardinality: for a `DISTRIBUTION` metric (from the previous lesson), you don't lock in "avg" or "p95" at submission time — you choose the **aggregation** when you actually query or graph the metric. The same underlying distribution data can be viewed as `avg`, `max`, `p50`, `p95`, or `p99` depending on what you select in the query editor or dashboard widget, without resubmitting anything. This is a different axis from tag cardinality — cardinality controls which tag combinations are queryable at all, aggregation controls how the numeric values within a chosen combination get summarized when you look at them.
+
+<Mermaid title="Raw ingestion vs. indexed, queryable tags" code={mwlDiagram} />
+
+export const mwlDiagram = `flowchart LR
+  A[App / DogStatsD submits high-cardinality tags: pod_name, az, env, service] --> B[Raw ingestion: cheap, all tags accepted]
+  B --> C{Metrics without Limits config}
+  C -->|indexed today: env, service| D[Queryable time series: low cardinality, lower cost]
+  C -->|can enable later: + pod_name| E[Queryable time series: higher cardinality, for deep investigation]`
+
+<Callout title="The one-line takeaway">
+Custom metric cost comes from **indexed tag cardinality**, not raw ingestion volume — **Metrics without Limits** lets you ingest high-cardinality tags like `pod_name` cheaply while only paying for a low-cardinality queryable view like `by service`, and you can turn on more tags later for an investigation without touching your instrumentation.
+</Callout>
+
+export const quizMwl = [
+  {
+    q: 'What is the primary driver of custom metric cost in Datadog?',
+    options: [
+      'The total number of raw data points ingested per second',
+      'The number of distinct indexed tag-value combinations (cardinality) for a metric',
+      'The number of dashboards a metric appears on',
+      'The metric type (gauge vs. count)',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'What does Metrics without Limits let you do?',
+    options: [
+      'Submit unlimited custom metrics for free',
+      'Choose which tags are indexed/queryable for a specific metric, independent of what was submitted',
+      'Automatically delete high-cardinality tags from your code',
+      'Convert a HISTOGRAM into a DISTRIBUTION retroactively',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'If you disable indexing on the `pod_name` tag for a metric today, what happens if you re-enable it next month?',
+    options: [
+      'You must re-instrument your application to start collecting pod_name again',
+      'The metric is permanently locked to the tags chosen on day one',
+      'You can turn pod_name back on for querying without changing your instrumentation',
+      'Re-enabling a tag requires opening a support ticket to Datadog engineering',
+    ],
+    answer: 2,
+  },
+  {
+    q: 'For a DISTRIBUTION metric, when do you choose an aggregation like avg, p95, or max?',
+    options: [
+      'At submission time, in the client library call',
+      'At query/graph time, in the dashboard or query editor',
+      'It is fixed permanently based on the metric type code',
+      'Only Datadog support can set the aggregation',
+    ],
+    answer: 1,
+  },
+]
+
+<Quiz client:visible id="infrastructure-and-metrics/metrics-without-limits-and-tag-cardinality" questions={quizMwl} />
+
+<ProgressTracker client:visible id="infrastructure-and-metrics/metrics-without-limits-and-tag-cardinality" />

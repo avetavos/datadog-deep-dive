@@ -1,0 +1,125 @@
+---
+title: 'Ingestion Sampling vs. Retention Filters'
+description: 'Why APM has two independent, stacked sampling layers — ingestion-time sampling controlled by the tracer/Agent, and server-side APM Retention Filters that decide what stays searchable, each with its own rate.'
+sidebar:
+  order: 2
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The idea in one sentence
+
+"Trace sampling" is actually **two separate, stacked controls** — one decides what even gets sent to Datadog, the other decides what stays searchable once it's already there — and treating them as one setting is the single most common APM sampling mistake.
+
+## Layer 1: ingestion-time sampling
+
+This layer lives in the **tracer** (and sometimes the **Agent**), and it answers one question: how many of the traces your application generates are even sent to Datadog in the first place. It runs before any trace ever leaves your infrastructure. A rate configured here of, say, `0.2` means 80% of traces are simply never transmitted — they don't exist in Datadog in any form, searchable or not:
+
+```yaml
+# Tracer-side config — controls what even reaches Datadog at all
+DD_TRACE_SAMPLE_RATE=0.2   # sample 20% of traces at ingestion time
+```
+
+Agent-side ingestion controls exist too (sampling rules applied as traces pass through the Agent before upstream submission), but the concept is the same regardless of exactly where the decision is made: **anything not ingested never reaches Datadog at all**, full stop. There is no later step that can recover a trace this layer dropped.
+
+## Layer 2: APM Retention Filters
+
+Everything that survives layer 1 lands in Datadog as an **ingested trace**. What happens next is a completely separate decision, made server-side, by **APM Retention Filters** (`filter_type: spans-sampling-processor`). A retention filter decides which already-ingested traces remain searchable and inspectable long-term — ingestion and retention are not the same gate.
+
+A retention filter has two independent knobs:
+
+- **`rate`** — the fraction of **matching spans** to retain.
+- **`trace_rate`** — a separate fraction of **the whole trace** to retain, for any trace that contains at least one matching span.
+
+```json
+{
+  "data": {
+    "attributes": {
+      "name": "keep-checkout-errors",
+      "enabled": true,
+      "filter_type": "spans-sampling-processor",
+      "filter": { "query": "service:checkout status:error" },
+      "rate": 1.0,
+      "trace_rate": 1.0
+    }
+  }
+}
+```
+
+This example says: for any span matching `service:checkout status:error`, keep 100% of those spans (`rate: 1.0`), and also keep 100% of the complete traces that contain one of those spans (`trace_rate: 1.0`) — so you don't just retain the error span in isolation, you retain the whole surrounding trace to see how the request got there.
+
+On top of anything you configure yourself, Datadog also runs an always-on **Intelligent Retention Filter** — it automatically keeps a representative proportion of traces across your traffic for general application-health visibility, independent of and in addition to any custom retention filters you define.
+
+## The practical implication: two gates, not one
+
+If you only think about "my sampling rate," you're only thinking about layer 1. That leaves two failure modes hiding in plain sight:
+
+- You can **ingest 100%** of traces and still **lose** the ones you actually care about later, if no retention filter is configured to keep them — a high ingestion rate is not the same thing as guaranteed retention.
+- You can **ingest a small fraction** of overall traffic and still **fully retain** the traces that matter — for example, a targeted retention filter that keeps every error trace — because retention filters operate on whatever made it through layer 1, and a `rate`/`trace_rate` of `1.0` on a narrow query is a completely different guarantee than your overall ingestion percentage.
+
+The two layers are independent by design: ingestion controls cost and volume at the front door, retention filters control long-term searchability of whatever came through that door.
+
+<Mermaid title="Two stacked sampling layers" code={samplingLayersDiagramEn} />
+
+export const samplingLayersDiagramEn = `flowchart LR
+  App[Instrumented app generates traces] --> Layer1[Layer 1: ingestion-time sampling in tracer/Agent]
+  Layer1 -->|dropped: never reaches Datadog| Gone[Not ingested]
+  Layer1 -->|sampled subset ingested| Backend[Datadog APM backend: all ingested traces]
+  Backend --> Layer2[Layer 2: APM Retention Filters rate + trace_rate]
+  Backend --> IRF[Intelligent Retention Filter: always-on baseline]
+  Layer2 -->|kept| Searchable[Searchable, inspectable traces]
+  IRF --> Searchable`
+
+<Callout title="The one-line takeaway">
+Ingestion-time sampling (tracer/Agent) decides what is even **sent** to Datadog, and APM Retention Filters (server-side, with independent `rate` and `trace_rate`) decide what stays **searchable** afterward — they are two stacked, independent gates, so a high ingestion rate does not guarantee retention, and a low ingestion rate does not prevent full retention of the traces that matter.
+</Callout>
+
+export const quizIngestionRetentionEn = [
+  {
+    q: 'What does ingestion-time sampling in the tracer/Agent control?',
+    options: [
+      'Which already-ingested traces stay searchable long-term',
+      'How many traces are even sent to Datadog in the first place',
+      'The color coding of the Service Map',
+      'How DDSketch percentiles are computed',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'In an APM Retention Filter, what is the difference between `rate` and `trace_rate`?',
+    options: [
+      '`rate` and `trace_rate` are aliases for the same setting',
+      '`rate` only applies to error traces, `trace_rate` only applies to non-error traces',
+      '`rate` is the fraction of matching spans to retain, `trace_rate` is the fraction of the whole trace containing a matching span to retain — two independent controls',
+      '`trace_rate` controls ingestion, `rate` controls retention',
+    ],
+    answer: 2,
+  },
+  {
+    q: 'A trace is dropped by ingestion-time sampling before it reaches Datadog. What happens next?',
+    options: [
+      'The Intelligent Retention Filter can still recover it',
+      'A retention filter with `trace_rate: 1.0` can still recover it',
+      'Nothing can recover it — it was never ingested, so no retention filter ever sees it',
+      'It is stored in a low-cost archive for later retrieval',
+    ],
+    answer: 2,
+  },
+  {
+    q: 'A team ingests only 5% of overall traffic, but has a retention filter matching `status:error` with `rate: 1.0` and `trace_rate: 1.0`. What is true?',
+    options: [
+      'No error traces will be retained since ingestion is only 5%',
+      'Every error trace that made it through the 5% ingestion sample will be fully retained and searchable',
+      'The retention filter is ignored because ingestion sampling is below 100%',
+      'The Intelligent Retention Filter overrides the custom filter',
+    ],
+    answer: 1,
+  },
+]
+
+<Quiz client:visible id="apm-and-distributed-tracing/ingestion-controls-vs-retention-filters" questions={quizIngestionRetentionEn} />
+
+<ProgressTracker client:visible id="apm-and-distributed-tracing/ingestion-controls-vs-retention-filters" />

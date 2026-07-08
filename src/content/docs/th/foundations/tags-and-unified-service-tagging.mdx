@@ -1,0 +1,146 @@
+---
+title: 'Tag กับ Unified Service Tagging'
+description: 'พื้นฐานเรื่อง tagging, ข้อควรระวังเรื่อง cardinality และ unified service tagging ด้วย env/service/version ข้าม metric, log และ trace ผ่าน DD_ENV/DD_SERVICE/DD_VERSION กับ Kubernetes label'
+sidebar:
+  order: 4
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ไอเดียหลักในหนึ่งประโยค
+
+tag คือ `key:value` ธรรมดา แต่มีสาม tag เฉพาะ — `env`, `service` และ `version` — ที่ถูกใส่แบบเดียวกันข้าม metric, log และ trace คือสิ่งที่ทำให้คุณ pivot จาก signal หนึ่งไปอีก signal หนึ่งของ deployable unit เดียวกันได้ ซึ่งเป็นพื้นฐานที่ทั้ง module "correlating signals" ของคอร์สนี้สร้างอยู่บนมัน
+
+## พื้นฐานเรื่อง tagging
+
+metric, log และ trace ทุกตัวใน Datadog พก tag ได้ เขียนเป็น `key:value` — `env:prod`, `region:ap-southeast-1`, `team:payments` tag มาจากไม่กี่ที่
+
+- **Host tag** — Agent แปะให้อัตโนมัติ (hostname, OS, cloud provider/instance metadata) หรือตั้งค่าครั้งเดียวใน `datadog.yaml`
+- **Integration tag** — ถูกเพิ่มโดย config ของ check เช่น tag `service:orders-db` ในตัวอย่าง Postgres จากบทที่แล้ว
+- **Custom tag** — อะไรก็ตามที่คุณเพิ่มเอง บน host, บน container หรือแปะตรงกับ metric submission เลย
+
+tag คือสิ่งที่ทำให้ UI ของ Datadog ใช้งานได้จริงในระดับใหญ่ — แทนที่จะไล่หาใน list ของ host 4,000 ตัว คุณ filter ด้วย `env:prod AND team:payments` แล้วได้เฉพาะส่วนที่ต้องการพอดี ใช้ได้เหมือนกันไม่ว่าจะดู Infrastructure, Logs หรือ APM — tag เดียวกัน syntax filter เดียวกัน ทุกที่
+
+## Cardinality — tag ที่ไม่ควรใส่
+
+ไม่ใช่ทุกข้อมูลที่ควรกลายเป็น tag value Datadog track time series (และ log facet ที่ถูก index) ต่อ combination ของ tag value ที่ไม่ซ้ำกัน ดังนั้น tag ที่ value ต่างกันแทบทุก event — raw user ID, request ID, URL เต็มพร้อม query parameter — จะสร้าง time series หรือ facet value ใหม่แทบทุก data point เรื่องนี้เรียกว่า **high cardinality** และมันแพงสองทาง — มันทำให้บิล custom metric พองขึ้น (แต่ละ combination ของ tag ที่ไม่ซ้ำกันบน metric คือ series ที่ถูกคิดเงินแยกกัน) และมันทำให้ UI *ใช้งานยากขึ้น* เพราะ dropdown filter tag ที่มี distinct value เป็นล้านตัวก็ไม่ใช่สิ่งที่คนใช้จริงในการ narrow ลงได้อีกต่อไป
+
+กฎง่าย ๆ — tag ด้วยสิ่งที่คุณอยากจะ filter หรือ group จริง ๆ — `env`, `service`, `version`, `region`, `team`, `endpoint` (เป็น route pattern ที่ normalize แล้ว ไม่ใช่ raw path) — ส่วน identifier ที่ไม่ซ้ำกันจริง ๆ (user ID, request ID, order ID) ให้ใส่ใน log message หรือ trace attribute แทนที่จะเป็น tag
+
+## Unified service tagging
+
+นี่คือ convention การ tag ที่ส่วนที่เหลือของคอร์สนี้พึ่งพาอยู่ มี tag key สามตัวที่ถูก reserve และถูกปฏิบัติเป็นพิเศษข้ามทุก product ของ Datadog
+
+- **`env`** — กำลังรันอยู่ใน environment ไหน (`prod`, `staging`, `dev`)
+- **`service`** — ชื่อของ deployable unit (`orders-api`, `checkout-worker`)
+- **`version`** — build/release เฉพาะของ service นั้น (`1.4.2`, git SHA หรืออะไรก็ตามที่ release process ของคุณผลิตออกมา)
+
+เหตุผลที่สามตัวนี้มีอยู่เป็น convention เฉพาะ แทนที่จะเป็นแค่ "tag ที่คุณเพิ่มเองก็ได้" คือเรื่อง correlation — เมื่อ Agent ของ host, tracer ของแอป และ log shipper ทั้งหมดใส่ค่า `env`, `service` และ `version` *เดียวกันเป๊ะ* ให้ telemetry ของแต่ละตัว Datadog เชื่อมมันเข้าด้วยกันได้ คุณเห็น error-rate metric ของ `orders-api` พุ่งขึ้นที่ `env:prod, version:1.4.2` กระโดดตรงไปที่ trace ที่พก tag เดียวกันสามตัวนั้น แล้วจากตรงนั้นไปที่ log บรรทัดที่ถูกส่งออกมาระหว่าง request เหล่านั้น — โดยไม่ต้องมานั่ง correlate timestamp หรือ hostname มือเอง การ pivot นั้นทำงานได้ก็เพราะ *value* ของ tag ไม่ใช่แค่ key ตรงกันเป๊ะข้ามทั้งสาม telemetry type — พิมพ์ผิดแบบ `Prod` เทียบกับ `prod` ทำให้ join พังแบบเงียบ ๆ
+
+<Mermaid title="Unified service tagging ties telemetry together" code={ustDiagramTh} />
+
+export const ustDiagramTh = `flowchart LR
+    subgraph Tags["env:prod  service:orders-api  version:1.4.2"]
+      M["Metrics"]
+      T["Traces"]
+      L["Logs"]
+    end
+    M -.same 3 tags.-> T
+    T -.same 3 tags.-> L
+    L -.same 3 tags.-> M
+`
+
+## ตั้งค่าให้สอดคล้องกัน — environment variable กับ Kubernetes label
+
+บน host ธรรมดาหรือ container เดี่ยว unified service tagging ถูกตั้งผ่านสาม environment variable ที่ทั้ง Agent และ tracer อ่าน
+
+```bash
+export DD_ENV="prod"
+export DD_SERVICE="orders-api"
+export DD_VERSION="1.4.2"
+```
+
+ใน Kubernetes สิ่งที่เทียบเท่าคือชุด label บน Deployment กับ Pod template — `tags.datadoghq.com/env`, `tags.datadoghq.com/service`, `tags.datadoghq.com/version` — แล้วค่าเดียวกันนั้นถูก re-inject เป็น environment variable `DD_ENV`/`DD_SERVICE`/`DD_VERSION` ผ่าน Kubernetes **downward API** เพื่อให้ tracer ข้างใน container เห็นมันด้วย
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    tags.datadoghq.com/env: "prod"
+    tags.datadoghq.com/service: "orders-api"
+    tags.datadoghq.com/version: "1.4.2"
+spec:
+  template:
+    metadata:
+      labels:
+        tags.datadoghq.com/env: "prod"
+        tags.datadoghq.com/service: "orders-api"
+        tags.datadoghq.com/version: "1.4.2"
+    spec:
+      containers:
+        - name: my-app
+          env:
+            - name: DD_ENV
+              valueFrom: { fieldRef: { fieldPath: "metadata.labels['tags.datadoghq.com/env']" } }
+            - name: DD_SERVICE
+              valueFrom: { fieldRef: { fieldPath: "metadata.labels['tags.datadoghq.com/service']" } }
+            - name: DD_VERSION
+              valueFrom: { fieldRef: { fieldPath: "metadata.labels['tags.datadoghq.com/version']" } }
+```
+
+label อยู่สองที่ (Deployment metadata กับ Pod template metadata) เพราะ Autodiscovery ของ Agent อ่าน pod label โดยตรงสำหรับ tagging ระดับ host/container ในขณะที่การ project ผ่าน downward API คือสิ่งที่เอาค่า *เดียวกัน* เข้าไปใน environment ของ process เองให้ tracer หยิบไปใช้ — source of truth เดียว ผู้ใช้สองฝั่ง
+
+<Callout title="The one-line takeaway">
+tag คือ `key:value` — รักษา cardinality ของ tag value ให้ต่ำ และเก็บ identifier ที่ไม่ซ้ำกันจริง ๆ ไว้ใน log message หรือ trace attribute แทน **Unified service tagging** (`env`, `service`, `version`) ที่ใส่แบบเดียวกันผ่าน `DD_ENV`/`DD_SERVICE`/`DD_VERSION` หรือ Kubernetes label `tags.datadoghq.com/*` ที่ตรงกัน คือสิ่งที่ทำให้คุณ pivot จาก metric ไปหา trace ไปหา log ของ deployable unit เดียวกันได้ — กลไกที่ module correlation ที่เหลือของคอร์สนี้พึ่งพาอยู่
+</Callout>
+
+export const quizTagsTh = [
+  {
+    q: 'ทำไม raw user ID ถึงเป็นตัวเลือกที่เสี่ยงสำหรับ tag value',
+    options: [
+      'tag ใส่ได้แค่ตัวเลขเท่านั้น',
+      'มันสร้าง value ที่แทบไม่ซ้ำกันต่อ event (high cardinality) ทำให้ cost พองและ filter ใช้งานไม่ได้',
+      'user ID ส่งเข้า Datadog ไม่ได้เลย',
+      'มันจะไปทับ tag env'
+    ],
+    answer: 1
+  },
+  {
+    q: 'สาม tag ไหนที่ประกอบกันเป็น unified service tagging',
+    options: [
+      'host, region, team',
+      'env, service, version',
+      'metric, log, trace',
+      'api_key, app_key, site'
+    ],
+    answer: 1
+  },
+  {
+    q: 'ทำไม unified service tagging ถึงทำให้ pivot จาก metric ไปหา trace ไปหา log ได้',
+    options: [
+      'เพราะ Datadog เก็บ telemetry ทุก type ไว้ในตารางรวมเดียวโดย default',
+      'เพราะ tag value ของ env/service/version เดียวกันถูกใส่แบบเดียวกันข้าม metric, trace และ log ทำให้ Datadog join กันได้',
+      'เพราะ Trace Agent เปลี่ยนชื่อ tag ทั้งหมดให้ตรงกันอัตโนมัติ',
+      'เพราะมันทำงานได้แค่ใน host เดียวเท่านั้น'
+    ],
+    answer: 1
+  },
+  {
+    q: 'ในตัวอย่าง Kubernetes ทำไม label tags.datadoghq.com/* ถึงถูก re-inject เป็น env var DD_ENV/DD_SERVICE/DD_VERSION ผ่าน downward API ด้วย',
+    options: [
+      'Kubernetes บังคับให้ทุก Deployment ต้องมี env var',
+      'เพื่อให้ tracer ที่รันอยู่ข้างใน container process ได้ค่าเดียวกันด้วย ไม่ใช่แค่ Agent ที่อ่าน pod label',
+      'เพราะ label ใส่ version string ไม่ได้',
+      'เพื่อให้ Software Catalog UI ทำงานได้เท่านั้น'
+    ],
+    answer: 1
+  }
+]
+
+<Quiz client:visible id="foundations/tags-and-unified-service-tagging" questions={quizTagsTh} />
+
+<ProgressTracker client:visible id="foundations/tags-and-unified-service-tagging" />

@@ -1,0 +1,126 @@
+---
+title: 'Cost Governance และ Cloud Cost Management'
+description: 'custom metric cost (tag cardinality) กับ log cost (indexed volume และ retention) ผูกกันเป็นเรื่อง cost governance เดียว แล้ว Cloud Cost Management เอา monitor mechanics แบบเดียวกันไปใช้กับบิลค่า cloud เลย'
+sidebar:
+  order: 2
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ไอเดียหลักในหนึ่งประโยค
+
+cost ของ Datadog ขึ้นกับสิ่งที่คุณเลือกเก็บไว้ indexed และ query ได้ ไม่ใช่ raw ingestion volume และ **Cloud Cost Management** เอา model monitor-and-alert แบบเดียวกันนี้ไปใช้ถึงบิลค่า cloud จริง ๆ ของคุณเลย
+
+## ทบทวน: cost lever สองแบบ ธีมเดียวกัน
+
+สองโมดูลก่อนหน้าสอน cost lever ที่ผิวเผินดูเหมือน "data เยอะขึ้น = cost เยอะขึ้น" แต่จริง ๆ ไม่ตรงแบบนั้นเป๊ะ
+
+- **Custom metric** (Infrastructure & Metrics, Metrics without Limits) — cost มาจาก **tag cardinality** คือจำนวนชุด tag-value ที่แตกต่างกันที่ถูก index และเปิดให้ query ได้สำหรับ metric นั้น คุณ submit metric พร้อม tag cardinality สูงอย่าง `pod_name` ได้แบบต้นทุนต่ำ แล้วจ่ายแค่ view cardinality ต่ำ — เช่น `by service` — ที่คุณเลือก index จริง ๆ
+- **Log** (Log Management, index และ exclusion filter) — cost มาจาก **indexed volume และ retention** คือ log ไหนถูกเขียนลง index บ้าง และเก็บกี่วัน exclusion filter ที่ drop log เสียงดังคุณค่าต่ำก่อนถึง index หรือ index ที่ตั้ง retention สั้นลง คือการตัดสินใจเรื่อง cost ไม่ใช่การตัดสินใจว่าข้อมูลจะหายไป — raw log ยัง archive เก็บไว้ได้อยู่
+
+จุดร่วมของทั้งสอง Datadog แทบไม่เคยคิดเงินแค่เพราะ data โผล่มา มันคิดเงินจากสิ่งที่คุณตัดสินใจว่าคุ้มค่าที่จะเก็บให้ query ได้ และเก็บนานแค่ไหน cost governance จริง ๆ แล้วคือการปฏิบัติกับ "จะ index อะไร ที่ cardinality หรือ retention เท่าไหร่" เป็นการตัดสินใจชัดเจน เหมือนที่ review database schema change
+
+## Cloud Cost Management: บิลค่า cloud เป็น metric source
+
+**Cloud Cost Management** เอา philosophy เดียวกันนี้ไปอีกขั้น — มัน ingest billing data ของ cloud provider — เช่น AWS Cost and Usage Reports — แล้ว expose ออกมาเป็น metric source ที่ query ได้ใน Datadog เคียงข้างกับ metric infrastructure และ APM ที่คุณมีอยู่แล้ว query อย่าง `sum:aws.cost.amortized{servicename:ec2} by {account}` ทำงานเหมือน metric query ตัวอื่น ๆ — เอาไป graph ได้ วางบน dashboard เคียงกับ `system.cpu.user` ของ service เดียวกันได้ และที่สำคัญคือ alert กับมันได้ด้วย
+
+ส่วนหลังนี่แหละสำคัญ เพราะมันแปลว่า cost spike จับได้ด้วย reflex เดียวกันที่ทีมคุณมีอยู่แล้วสำหรับ latency spike หรือ error-rate spike แทนที่จะไปเจอตอนบิลมาอีกเดือนนึงถัดมา
+
+## cost alert monitor mechanics เดียวกับที่ผ่านมา
+
+```terraform
+resource "datadog_monitor" "cloud_cost_spike" {
+  name    = "EC2 cost anomaly"
+  type    = "cost alert"
+  message = "Unusual EC2 spend detected"
+
+  query = "formula(\"query1\").last(\"30d\").anomaly(direction=\"both\") > 6"
+
+  variables {
+    cloud_cost_query {
+      data_source = "cloud_cost"
+      name        = "query1"
+      query       = "sum:aws.cost.amortized{servicename:ec2} by {account}"
+      aggregator  = "sum"
+    }
+  }
+
+  monitor_thresholds {
+    critical = 6
+  }
+}
+```
+
+อ่านตัวนี้แบบเดียวกับ resource `datadog_monitor` จากบทก่อนหน้าเลย เพราะมันคือ resource type เดียวกัน แค่ค่า `type` ต่างออกไป
+
+- **`type = "cost alert"`** — monitor type ที่เกิดมาสำหรับ cloud cost data โดยเฉพาะ อยู่คู่กับ `metric alert`, `log alert` และตัวอื่น ๆ
+- **`variables.cloud_cost_query`** — แทนที่จะเป็น metric query ธรรมดา named query (`query1`) ชี้ไปที่ `data_source = "cloud_cost"` แล้วดึง `sum:aws.cost.amortized{servicename:ec2} by {account}` aggregate ด้วย `sum`
+- **`query`** ระดับบนสุดคือ **formula** เหนือ named query นั้น `formula("query1").last("30d").anomaly(direction="both") > 6` มองย้อนหลังไป 30 วันแล้ว flag anomaly ในทิศทางไหนก็ได้
+- **`monitor_thresholds.critical = 6`** — threshold mechanics เดียวกับ `metric alert` เลย แค่ apply กับ anomaly score แทน CPU percentage ดิบ ๆ
+
+ไม่มีอะไรใหม่ในแง่ alerting concept ตรงนี้เลย — คือ monitor primitive จากโมดูลก่อนหน้า (threshold, `monitor_thresholds`, `message` แจ้งเตือน) ไปชี้ที่ data source แบบใหม่ นั่นแหละคือประเด็นทั้งหมด — cost governance ไม่ต้องมี tool แยกมาต่อพ่วง มันเสียบเข้ากับ workflow monitors-as-code เดียวกับบทก่อนหน้าได้เลย
+
+<Mermaid title="From cloud billing data to a cost alert" code={costGovernanceDiagramTh} />
+
+export const costGovernanceDiagramTh = `flowchart LR
+  A[Custom metric tag cardinality] --> D[Cost governance decisions]
+  B[Log indexed volume and retention] --> D
+  C[Cloud provider billing data] --> E[Cloud Cost Management]
+  E --> F["Queryable cost metric: sum:aws.cost.amortized{...}"]
+  F --> G[Cost alert monitor: formula + anomaly + threshold]
+  G --> H[Same alert routing as any other monitor]
+  D --> G`
+
+<Callout title="The one-line takeaway">
+custom metric cost มาจาก **tag cardinality** log cost มาจาก **indexed volume และ retention** — ไม่ใช่แค่ raw ingestion อย่างเดียว — และ **Cloud Cost Management** ingest billing data ของ cloud เป็น metric source ที่ query ได้ ทำให้ monitor แบบ `cost alert` apply threshold-and-notification mechanics แบบเดียวกันนี้กับบิลค่า cloud ได้เลย
+</Callout>
+
+export const quizCostGovernanceTh = [
+  {
+    q: 'ตัวขับหลักของ custom metric cost ที่สอนในโมดูล Infrastructure & Metrics คืออะไร',
+    options: [
+      'จำนวน data point ดิบที่ ingest ต่อวินาที',
+      'tag cardinality คือจำนวนชุด tag-value ที่ถูก index แตกต่างกัน',
+      'จำนวน dashboard ที่ metric นี้ไปปรากฏอยู่',
+      'ความยาวของชื่อ metric',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'ตัวขับหลักของ log cost ที่สอนในโมดูล Log Management คืออะไร',
+    options: [
+      'จำนวน log line ดิบทั้งหมดที่ application สร้างขึ้น',
+      'indexed volume และ retention ไม่ใช่แค่ raw ingestion volume อย่างเดียว',
+      'จำนวน Grok parser ที่ใช้',
+      'จำนวน service ที่ส่ง log',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'Cloud Cost Management ให้คุณทำอะไรได้',
+    options: [
+      'ลดบิลค่า cloud provider ให้อัตโนมัติ',
+      'ingest billing data ของ cloud provider มาเป็น metric source ของ Datadog ที่ query ได้',
+      'แทนที่ tag cardinality control ของ custom metric',
+      'แปลง log ให้กลายเป็น cost data ให้อัตโนมัติ',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'ใน monitor ตัวอย่าง `cloud_cost_spike` อะไรคือตัว trigger alert',
+    options: [
+      'จำนวนเงินคงที่ที่เกินในบิล AWS ดิบ ๆ',
+      'formula anomaly เหนือ cloud cost query ที่ข้าม threshold ที่ตั้งไว้',
+      'การเปลี่ยนแปลงของ cost EC2 ไม่ว่าเล็กแค่ไหนก็ตาม',
+      'การคลิกด้วยมือใน Datadog UI',
+    ],
+    answer: 1,
+  },
+]
+
+<Quiz client:visible id="production-and-ecosystem/cost-governance-and-cloud-cost-management" questions={quizCostGovernanceTh} />
+
+<ProgressTracker client:visible id="production-and-ecosystem/cost-governance-and-cloud-cost-management" />

@@ -1,0 +1,138 @@
+---
+title: 'Synthetics กับ Uptime Check'
+description: 'API test กับ Browser test ใน Datadog Synthetic Monitoring และ Synthetic test ที่ fail เสียบเข้ากับ monitor/notification/escalation pipeline เดียวกับ metric alert และ log alert อย่างไร'
+sidebar:
+  order: 4
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ไอเดียหลักในหนึ่งประโยค
+
+Synthetic Monitoring รัน scripted check เชิงรุกจาก global network ของ location ที่ Datadog เป็นเจ้าของเอง แทนที่จะรอให้ traffic จริงจาก user หรือ backend เผยปัญหาออกมา และเมื่อ test ตัวหนึ่ง fail มันจะเสียบเข้ากับ monitor และ notification pipeline เดียวกับที่พูดถึงไปแล้วก่อนหน้าใน module นี้พอดี
+
+## API test: single request-response check
+
+**API test** คือ single request-response check แบบ HTTP/TCP/DNS/ICMP — เช่นยิงไปที่ health-check endpoint แล้ว assert status code, response time หรือ body content มันรันซ้ำ ๆ จาก location ที่เลือกไว้
+
+```json
+{
+  "name": "Checkout health check",
+  "type": "api",
+  "subtype": "http",
+  "config": {
+    "request": {
+      "method": "GET",
+      "url": "https://checkout.example.com/health"
+    },
+    "assertions": [
+      { "type": "statusCode", "operator": "is", "target": 200 },
+      { "type": "responseTime", "operator": "lessThan", "target": 300 }
+    ]
+  },
+  "locations": ["aws:ap-southeast-1", "aws:eu-west-1"]
+}
+```
+
+## Browser test: user journey แบบ scripted เต็มรูปแบบ
+
+**Browser test** รัน scripted browser flow เต็มรูปแบบผ่านหลาย step — เปิดหน้าเว็บ กดปุ่ม login assert ว่า dashboard element โผล่มา — เพื่อทดสอบ user journey จริงตั้งแต่ต้นจนจบ มันจับสิ่งที่ API test ทำไม่ได้โดยธรรมชาติ — หน้าเว็บอาจ return `200` แต่ UI พังก็ได้ หรือ flow อาจ fail กลางคันทั้งที่ทุก request ที่อยู่เบื้องหลัง "สำเร็จ" หมด
+
+```json
+{
+  "name": "Login flow",
+  "type": "browser",
+  "config": {
+    "steps": [
+      { "type": "goToUrl", "params": { "value": "https://app.example.com/login" } },
+      { "type": "click", "params": { "element": "#login-button" } },
+      { "type": "assertElementPresent", "params": { "element": "#dashboard" } }
+    ]
+  },
+  "locations": ["aws:us-east-1"]
+}
+```
+
+## Alerting pipeline เดียวกัน แหล่งสัญญาณต่างกัน
+
+Synthetic test ที่ fail จะ trigger monitor ประเภท **synthetics alert** — และ synthetics alert monitor ใช้กลไก threshold, notification และ escalation แบบเดียวกับที่สอนไปแล้วก่อนหน้าใน module นี้เป๊ะ critical/warning threshold, `@`-mention, `escalation_message` และ Downtime สำหรับ maintenance ที่วางแผนไว้ล่วงหน้า ทำงานเหมือนกันทุกอย่าง สิ่งที่ต่างมีแค่ input ที่ป้อนเข้า monitor เท่านั้น
+
+```json
+{
+  "type": "synthetics alert",
+  "query": "\"synthetics\" for test_public_id in (\"abc-def-ghi\") \"failure\" over \"5m\" last \"3\" check greater than 2",
+  "options": {
+    "thresholds": {
+      "critical": 2,
+      "warning": 1
+    }
+  },
+  "message": "@slack-checkout-oncall @pagerduty-checkout-critical Checkout health check is failing from multiple locations.",
+  "escalation_message": "@pagerduty-checkout-escalation Still failing, escalating."
+}
+```
+
+ไม่มีอะไรในกลไก alerting เปลี่ยนไปเลยตรงนี้ มันคือ shape ของ `critical`/`warning` threshold เดียวกับบทที่ 1 การ route ด้วย `@`-mention และพฤติกรรม re-notify ของ `escalation_message` เดียวกับบทที่ 2 และความสามารถ mute ด้วย Downtime ตอน maintenance ที่วางแผนไว้ก็เหมือนกันทุกอย่าง สิ่งที่ต่างมีแค่แหล่งสัญญาณ แทนที่จะเป็น metric query หรือ log search input กลายเป็น "scripted check นี้ผ่านหรือ fail จาก location พวกนี้"
+
+<Mermaid title="From Synthetic test run to alert" code={syntheticsDiagramTh} />
+
+export const syntheticsDiagramTh = `flowchart LR
+  Loc1[Location: ap-southeast-1] --> Test[Synthetic test: API or Browser]
+  Loc2[Location: eu-west-1] --> Test
+  Test -->|pass or fail per run| History[Test result history]
+  History --> Mon[synthetics alert monitor]
+  Mon -->|critical/warning thresholds| Notify[Same notification/escalation pipeline as metric and composite monitors]`
+
+<Callout title="The one-line takeaway">
+Synthetic Monitoring รัน **API test** (single request-response check แบบ HTTP/TCP/DNS/ICMP) และ **Browser test** (scripted user journey เต็มรูปแบบ) เชิงรุกจาก location ทั่วโลกของ Datadog และ test ที่ fail จะ trigger synthetics alert monitor ที่ใช้กลไก threshold, `@`-mention, `escalation_message` และ Downtime เดียวกับ monitor type อื่นทุกประการ ต่างกันแค่แหล่งสัญญาณ
+</Callout>
+
+export const quizSyntheticsUptimeTh = [
+  {
+    q: 'ความต่างหลักระหว่าง API test กับ Browser test ใน Synthetic Monitoring คืออะไร',
+    options: [
+      'API test รันจาก location เดียว ส่วน Browser test รันจากหลาย location',
+      'API test คือ single request-response check (HTTP/TCP/DNS/ICMP) ส่วน Browser test รัน scripted browser flow เต็มรูปแบบผ่านหลาย step',
+      'Browser test assert response content ไม่ได้',
+      'API test ต้องมี monitor แต่ Browser test ไม่ต้อง',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'ทำไม Browser test ถึงจับปัญหาที่ API test บนหน้าเดียวกันอาจพลาดได้',
+    options: [
+      'Browser test รันบ่อยกว่าโดย default',
+      'หน้าเว็บอาจ return status code 200 แต่ UI พัง หรือ flow อาจ fail กลางคันตอนกดปุ่ม login ซึ่งมีแค่ scripted browser flow เท่านั้นที่ทดสอบส่วนนี้จริง',
+      'API test เช็ค status code ไม่ได้',
+      'Browser test ไม่ได้ผูกกับ location ของ Datadog',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'เมื่อ Synthetic test เริ่ม fail มันแจ้งเตือนคนอย่างไรตามปกติ',
+    options: [
+      'Synthetics มีระบบ notification แยกต่างหากที่ไม่เกี่ยวกับ monitor',
+      'ผ่าน synthetics alert monitor โดยใช้กลไก threshold/notification/escalation เดียวกับ monitor type อื่น',
+      'ส่งได้แค่ email เท่านั้น ไม่มี integration กับ Slack หรือ PagerDuty',
+      'สร้าง composite monitor ขึ้นมาให้อัตโนมัติ',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'การที่ Synthetic test รันจาก global network ของ location ของ Datadog หมายความว่าอย่างไร',
+    options: [
+      'check รันแบบ reactive เฉพาะหลังจาก user จริง report ปัญหา',
+      'check เป็นแบบ proactive รัน scripted request หรือ flow จาก location ที่เลือก โดยไม่ขึ้นกับ traffic จาก user หรือ backend จริง',
+      'location มีผลแค่กับ Browser test เท่านั้น ไม่เกี่ยวกับ API test',
+      'เลือก location ได้แค่ตัวเดียวต่อ test',
+    ],
+    answer: 1,
+  },
+]
+
+<Quiz client:visible id="monitors-alerting-and-slos/synthetics-and-uptime-checks" questions={quizSyntheticsUptimeTh} />
+
+<ProgressTracker client:visible id="monitors-alerting-and-slos/synthetics-and-uptime-checks" />

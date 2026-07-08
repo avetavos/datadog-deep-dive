@@ -1,0 +1,114 @@
+---
+title: 'Dashboard กับทัวร์ Datadog UI'
+description: 'ทัวร์ Infrastructure List/Host Map, Metrics Explorer, Logs Explorer, APM Traces/Services, dashboard แบบ ordered เทียบกับ free และ Notebooks — ทั้งหมด filter ด้วย tag ชุดเดียวกัน'
+sidebar:
+  order: 5
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ไอเดียหลักในหนึ่งประโยค
+
+ทุก view ใน Datadog — Infrastructure, Metrics Explorer, Logs Explorer, APM, Dashboards — ถูก filter และ scope ด้วย tag syntax *เดียวกัน* ดังนั้นพอรู้จัก `env`/`service`/`version` จากบทที่แล้ว คุณก็รู้วิธี navigate ทุกตัวไปแล้ว
+
+## ที่ที่คุณจะดูข้อมูลจริง ๆ
+
+ห้า view นี้ครอบคลุมเกือบทุกอย่างที่ต้องทำในแต่ละวัน
+
+- **Infrastructure List / Host Map** — host หรือ container ทุกตัวที่ Datadog รู้จัก เป็น list ที่ sort ได้ หรือ grid สีสัน (Host Map) ที่ระบายสีตาม metric ไหนก็ได้ (CPU, memory) และ filter ด้วย tag ได้
+- **Metrics Explorer** — สร้าง graph แบบ ad-hoc จาก metric ไหนก็ได้ แบ่งตาม tag โดยไม่ต้อง commit เป็น dashboard ที่ save ไว้ — นี่คือที่ที่ไปตอบคำถาม "ตัวเลขนี้หน้าตาเป็นยังไงตอนนี้จริง ๆ"
+- **Logs Explorer** — ค้นหาและ filter log event ที่ถูก index สร้าง facet จาก log attribute และ pivot ตรงจาก log line ไปยัง trace ของมันได้ถ้าตั้งค่า trace injection ไว้แล้ว
+- **APM Traces / Services** — list Services โชว์ทุกค่า tag `service` ที่ Datadog เห็น trace มา พร้อม latency/error/throughput แบบเห็นภาพรวมทันที ลงลึกเข้าไปใน service ตัวหนึ่งจะเห็น trace ของมันและตำแหน่งของมันใน service map
+- **Dashboards** — ชุด widget ที่คัดสรรและ save ไว้ สร้างครั้งเดียวแล้วทั้งทีมใช้ซ้ำได้
+
+<Mermaid title="One tag filter, five views" code={uiDiagramTh} />
+
+export const uiDiagramTh = `flowchart TD
+    Filter["Tag filter: env:prod service:orders-api"] --> Infra["Infrastructure List / Host Map"]
+    Filter --> Metrics["Metrics Explorer"]
+    Filter --> Logs["Logs Explorer"]
+    Filter --> APM["APM Traces / Services"]
+    Filter --> Dash["Dashboards"]
+`
+
+## Dashboard แบบ ordered เทียบกับ free
+
+Datadog Dashboard มี layout สองแบบ และเลือกให้ถูกตั้งแต่แรกช่วยประหยัดงานทำซ้ำทีหลังได้เยอะ
+
+- **Ordered** — widget stack ต่อกันอัตโนมัติตามลำดับที่เพิ่มเข้าไป จากบนลงล่าง คุณไม่ต้องจัดการตำแหน่ง pixel คุณจัดการแค่ list นี่คือ default ที่ถูกต้องสำหรับ dashboard ส่วนใหญ่ — สร้างเร็ว, จัดลำดับใหม่ง่าย และ reflow ได้สมเหตุสมผลบนทุกขนาดหน้าจอ
+- **Free** — คุณวาง widget แต่ละตัวมือด้วยพิกัด `x`, `y`, `width` และ `height` ที่ชัดเจน ทำให้ได้ layout ที่ fix และตั้งใจวางไว้แบบนั้น — มีประโยชน์กับ dashboard สไตล์ status-board ที่ตั้งใจให้ดูบนจอใหญ่ ที่การจัดกลุ่มด้วยสายตาสำคัญกว่าความสะดวกในการแก้ไข
+
+```json
+// A widget on a free dashboard carries explicit layout coordinates
+{
+  "definition": { "type": "timeseries", "title": "orders-api error rate" },
+  "layout": { "x": 0, "y": 0, "width": 6, "height": 3 }
+}
+```
+
+```json
+// The same widget on an ordered dashboard has no layout block —
+// its position is just its position in the widgets array
+{
+  "definition": { "type": "timeseries", "title": "orders-api error rate" }
+}
+```
+
+ถ้าไม่แน่ใจว่าต้องใช้แบบไหน เริ่มจาก **ordered** ก่อน — คุณขยาย widget หรือแยกมันเป็นสองตัวได้เสมอ และไม่ต้องมานั่งปรับพิกัดมือแค่เพื่อเพิ่ม graph อีกตัว
+
+## Notebooks
+
+**Notebooks** คือทางเลือกที่เบากว่า Dashboard สำหรับงานคนละแบบ — เล่าเรื่อง ไม่ใช่ดูแล status board แบบ live Notebook ผสม graph, log query และ markdown ข้อความอิสระไว้ในเอกสารเดียวที่ scroll ได้ — เป็นที่ธรรมชาติสำหรับเขียน timeline ของ incident ("นี่คือ graph latency ตอนที่พุ่ง, นี่คือ deploy marker, นี่คือสิ่งที่สรุปได้"), postmortem หรือการสืบสวนแบบครั้งเดียวที่อยากส่งต่อให้เพื่อนร่วมทีม ต่างจาก Dashboard ตรงที่ Notebook ตั้งใจให้อ่านจากบนลงล่างครั้งเดียว ไม่ใช่เหลือบดูซ้ำ ๆ
+
+## Tag ชุดเดียวกัน ทุก view
+
+เหตุผลที่ทุกอย่างนี้เชื่อมกันได้ — Infrastructure, Metrics Explorer, Logs Explorer, APM และ Dashboards ทั้งหมดรับ tag filter syntax เดียวกันเป๊ะ — `env:prod`, `service:orders-api`, `version:1.4.2` รวมกับ `AND`/`OR` ตามต้องการ ตั้งค่า unified service tagging ให้ถูกต้อง (บทที่แล้ว) แล้ว filter สามค่าเดียวกันนั้นจะ narrow ทุก view เหล่านี้ลงเหลือ "deployable unit ตัวนี้ environment นี้ release นี้" — ซึ่งเป็นเหตุผลทั้งหมดที่คอร์สนี้ใช้เวลาทั้งบทสอนเรื่อง tagging ก่อนจะแตะ dashboard เลยด้วยซ้ำ
+
+<Callout title="The one-line takeaway">
+Infrastructure List/Host Map, Metrics Explorer, Logs Explorer, APM และ Dashboards คือห้ามุมมองที่ต่างกันของข้อมูลที่ tag เดียวกัน — เลือก dashboard แบบ **ordered** เป็น default (stack กัน ดูแลง่าย) และใช้ **free** เฉพาะตอนต้องการวางตำแหน่งแบบ pixel-exact เอื้อมไปหา **Notebook** เมื่อกำลังเล่าเรื่องแทนที่จะดูแล view แบบ live และ navigate ทั้งห้าตัวด้วย tag filter `env`/`service`/`version` ชุดเดียวกัน
+</Callout>
+
+export const quizUiTh = [
+  {
+    q: 'ควรเปิด view ไหนเพื่อดูทุก service ที่ Datadog มี trace อยู่ พร้อม latency/error/throughput แบบเห็นภาพรวมทันที',
+    options: ['Host Map', 'Metrics Explorer', 'APM Services list', 'Notebooks'],
+    answer: 2
+  },
+  {
+    q: 'ความต่างหลักระหว่าง ordered dashboard กับ free dashboard คืออะไร',
+    options: [
+      'ordered dashboard ใส่ log widget ไม่ได้',
+      'widget แบบ ordered stack กันอัตโนมัติตามลำดับ ส่วน widget แบบ free ถูกวางมือด้วย x/y/width/height',
+      'free dashboard แชร์ให้ทีมไม่ได้',
+      'ordered dashboard ใช้ได้กับข้อมูล APM เท่านั้น'
+    ],
+    answer: 1
+  },
+  {
+    q: 'เมื่อไหร่ที่ Notebook เป็นเครื่องมือที่ดีกว่า Dashboard',
+    options: [
+      'เมื่อต้องการ status board แบบ live สำหรับจอใหญ่',
+      'เมื่อกำลังเขียนเรื่องเล่า เช่น timeline ของ incident ที่ผสม graph กับข้อความ',
+      'เมื่อต้องการวาง widget แบบ pixel-exact',
+      'เมื่อต้องการดูแค่ metric ระดับ host'
+    ],
+    answer: 1
+  },
+  {
+    q: 'ทำไมถึงใช้ filter env:prod AND service:orders-api ตัวเดียวกันได้ทั้งใน Logs Explorer และใน APM',
+    options: [
+      'เพราะ log กับ trace เก็บอยู่ใน database table เดียวกัน',
+      'เพราะทั้งสอง view รับ tag filter syntax เดียวกันบน telemetry ที่ถูก tag อย่างสม่ำเสมอด้วย unified service tagging',
+      'เพราะ APM import log ทั้งหมดเข้ามาอัตโนมัติ',
+      'เพราะ Logs Explorer เพิกเฉยต่อ tag filter'
+    ],
+    answer: 1
+  }
+]
+
+<Quiz client:visible id="foundations/dashboards-and-the-datadog-ui-tour" questions={quizUiTh} />
+
+<ProgressTracker client:visible id="foundations/dashboards-and-the-datadog-ui-tour" />

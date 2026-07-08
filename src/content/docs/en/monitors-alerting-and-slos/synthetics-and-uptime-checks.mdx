@@ -1,0 +1,138 @@
+---
+title: 'Synthetics and Uptime Checks'
+description: 'API tests and Browser tests in Datadog Synthetic Monitoring, and how a failing Synthetic test plugs into the exact same monitor, notification, and escalation pipeline as metric and log alerts.'
+sidebar:
+  order: 4
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The idea in one sentence
+
+Synthetic Monitoring runs scripted checks proactively from Datadog's own global network of locations instead of waiting for real user or backend traffic to reveal a problem, and once a test fails, it feeds into the exact same monitor and notification pipeline already covered earlier in this module.
+
+## API tests: single request-response checks
+
+An **API test** is a single HTTP/TCP/DNS/ICMP request-response check — for example, hitting a health-check endpoint and asserting on the status code, response time, or body content. It runs repeatedly from whichever locations you choose.
+
+```json
+{
+  "name": "Checkout health check",
+  "type": "api",
+  "subtype": "http",
+  "config": {
+    "request": {
+      "method": "GET",
+      "url": "https://checkout.example.com/health"
+    },
+    "assertions": [
+      { "type": "statusCode", "operator": "is", "target": 200 },
+      { "type": "responseTime", "operator": "lessThan", "target": 300 }
+    ]
+  },
+  "locations": ["aws:ap-southeast-1", "aws:eu-west-1"]
+}
+```
+
+## Browser tests: full scripted user journeys
+
+A **Browser test** runs a full scripted browser flow across multiple steps — load a page, click a login button, assert a dashboard element appears — to test a real user journey end to end. This catches things an API test physically cannot: a page can return `200` and still render a broken UI, or a flow can fail partway through even though every individual request behind it "succeeded."
+
+```json
+{
+  "name": "Login flow",
+  "type": "browser",
+  "config": {
+    "steps": [
+      { "type": "goToUrl", "params": { "value": "https://app.example.com/login" } },
+      { "type": "click", "params": { "element": "#login-button" } },
+      { "type": "assertElementPresent", "params": { "element": "#dashboard" } }
+    ]
+  },
+  "locations": ["aws:us-east-1"]
+}
+```
+
+## Same alerting pipeline, different signal source
+
+A failing Synthetic test triggers a **synthetics alert** monitor — and a synthetics alert monitor uses the exact same threshold, notification, and escalation mechanics taught earlier in this module. Critical/warning thresholds, `@`-mentions, `escalation_message`, and Downtimes for planned maintenance all work identically; only the input feeding the monitor is different.
+
+```json
+{
+  "type": "synthetics alert",
+  "query": "\"synthetics\" for test_public_id in (\"abc-def-ghi\") \"failure\" over \"5m\" last \"3\" check greater than 2",
+  "options": {
+    "thresholds": {
+      "critical": 2,
+      "warning": 1
+    }
+  },
+  "message": "@slack-checkout-oncall @pagerduty-checkout-critical Checkout health check is failing from multiple locations.",
+  "escalation_message": "@pagerduty-checkout-escalation Still failing, escalating."
+}
+```
+
+Nothing about the alerting mechanics changes here. It's the same `critical`/`warning` threshold shape from lesson 1, the same `@`-mention routing and `escalation_message` re-notify behavior from lesson 2, and the same ability to mute with a Downtime during planned maintenance. Only the signal source is different: instead of a metric query or a log search, the input is "did this scripted check pass or fail, from these locations."
+
+<Mermaid title="From Synthetic test run to alert" code={syntheticsDiagramEn} />
+
+export const syntheticsDiagramEn = `flowchart LR
+  Loc1[Location: ap-southeast-1] --> Test[Synthetic test: API or Browser]
+  Loc2[Location: eu-west-1] --> Test
+  Test -->|pass or fail per run| History[Test result history]
+  History --> Mon[synthetics alert monitor]
+  Mon -->|critical/warning thresholds| Notify[Same notification/escalation pipeline as metric and composite monitors]`
+
+<Callout title="The one-line takeaway">
+Synthetic Monitoring runs **API tests** (single HTTP/TCP/DNS/ICMP request-response checks) and **Browser tests** (full scripted user journeys) proactively from Datadog's global locations, and a failing test triggers a synthetics alert monitor that uses the exact same threshold, `@`-mention, `escalation_message`, and Downtime mechanics as any other monitor type — only the signal source changes.
+</Callout>
+
+export const quizSyntheticsUptimeEn = [
+  {
+    q: 'What is the key difference between an API test and a Browser test in Synthetic Monitoring?',
+    options: [
+      'API tests only run from one location, Browser tests run from many',
+      'An API test is a single request-response check (HTTP/TCP/DNS/ICMP), a Browser test runs a full scripted browser flow across multiple steps',
+      'Browser tests cannot make assertions on response content',
+      'API tests require a monitor, Browser tests do not',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'Why might a Browser test catch a problem that an API test on the same page would miss?',
+    options: [
+      'Browser tests run more frequently by default',
+      'A page can return a 200 status code and still render a broken UI or fail partway through a user flow like clicking login, which only a scripted browser flow actually exercises',
+      'API tests cannot check status codes',
+      'Browser tests do not depend on Datadog locations',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'When a Synthetic test starts failing, how does it typically notify someone?',
+    options: [
+      'Synthetics has its own separate notification system unrelated to monitors',
+      'Through a synthetics alert monitor, using the same thresholds/notification/escalation mechanics as any other monitor type',
+      'It can only send an email, no Slack or PagerDuty integration',
+      'It automatically creates a composite monitor',
+    ],
+    answer: 1,
+  },
+  {
+    q: "What does it mean that Synthetic tests run from Datadog's global network of locations?",
+    options: [
+      'The checks run reactively only after a real user reports an issue',
+      'The checks are proactive, running scripted requests or flows from chosen locations regardless of real user or backend traffic',
+      'Locations only matter for Browser tests, not API tests',
+      'Only one location can be selected per test',
+    ],
+    answer: 1,
+  },
+]
+
+<Quiz client:visible id="monitors-alerting-and-slos/synthetics-and-uptime-checks" questions={quizSyntheticsUptimeEn} />
+
+<ProgressTracker client:visible id="monitors-alerting-and-slos/synthetics-and-uptime-checks" />

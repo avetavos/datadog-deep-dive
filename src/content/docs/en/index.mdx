@@ -1,0 +1,60 @@
+---
+title: Datadog — From Zero to Hero
+description: Master Datadog from first principles — the Agent and integrations, unified service tagging, custom metrics and dashboards, log management with indexes and exclusion filters, APM and distributed tracing, correlating logs/traces/metrics per service, monitors and SLOs, and running Datadog in production with Terraform.
+template: splash
+hero:
+  tagline: A standalone, developer-focused course on Datadog — the unified observability platform. From the Agent and unified service tagging to metrics, log management, APM, and the correlation model that ties them into one view per service — taught through real Agent config, DogStatsD, and Terraform. Every layered detail (ingestion vs. retention sampling, exclusion filters vs. archives) is verified against current docs.
+  actions:
+    - text: Start here
+      link: /datadog/en/foundations/
+      icon: right-arrow
+      variant: primary
+    - text: Jump to correlating signals
+      link: /datadog/en/correlating-signals/connecting-logs-and-traces/
+      icon: open-book
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## What you'll learn
+
+<CardGrid>
+  <Card title="Foundations" icon="rocket">
+    What Datadog is, the Agent and integrations, unified service tagging, and a tour of the UI. [Start →](/datadog/en/foundations/)
+  </Card>
+  <Card title="Infrastructure & Metrics" icon="seti:html">
+    Agent-collected metrics, custom metrics via DogStatsD, Metrics without Limits, and dashboards. [Measure →](/datadog/en/infrastructure-and-metrics/agent-collected-metrics-and-checks/)
+  </Card>
+  <Card title="Log Management" icon="approve-check">
+    Collection and processing pipelines, indexes vs. exclusion filters, log-based metrics, and archives. [Collect →](/datadog/en/log-management/log-collection-and-processing-pipelines/)
+  </Card>
+  <Card title="APM & Distributed Tracing" icon="random">
+    Traces, spans and the service map, ingestion vs. retention sampling, trace metrics, and profiling. [Trace →](/datadog/en/apm-and-distributed-tracing/traces-spans-and-the-service-map/)
+  </Card>
+  <Card title="Correlating Logs, Traces & Metrics" icon="seti:config">
+    Trace-log injection, unified service tagging in practice, the Service Catalog, and RUM context. [Connect →](/datadog/en/correlating-signals/connecting-logs-and-traces/)
+  </Card>
+  <Card title="Monitors, Alerting & SLOs" icon="seti:plan">
+    Monitor types and thresholds, composite monitors, SLO error budgets and burn rates, and Synthetics. [Alert →](/datadog/en/monitors-alerting-and-slos/monitor-types-and-thresholds/)
+  </Card>
+  <Card title="Production & Ecosystem" icon="puzzle">
+    Datadog as code with Terraform, cost governance, security basics, and a production rollout checklist. [Ship it →](/datadog/en/production-and-ecosystem/datadog-as-code-with-terraform/)
+  </Card>
+</CardGrid>
+
+## How this course works
+
+<CardGrid>
+  <Card title="Layered pipelines, not one dial" icon="rocket">
+    Metrics, logs, and traces are separate pipelines, each with its own ingestion, retention, and cost controls — this course teaches every layer instead of treating "sampling" or "retention" as one setting.
+  </Card>
+  <Card title="Current behavior, verified" icon="random">
+    Written against current Datadog behavior and checked against the official docs via context7 — including the split between log ingestion and indexing, and APM's ingestion-vs-retention-filter distinction that a lot of tutorials collapse into one.
+  </Card>
+  <Card title="One tag triple, three pipelines" icon="approve-check">
+    Not just "add some tags" but the full picture: how `env`/`service`/`version` — unified service tagging — let you pivot between a service's metrics, traces, and logs instead of hunting through three disconnected tools.
+  </Card>
+  <Card title="Diagrams that explain" icon="puzzle">
+    The Agent's data paths, the log pipeline from intake to index, APM's ingestion/retention split, and the SLO error-budget model as theme-aware Mermaid diagrams. Bilingual (English / ไทย) with saved quiz progress.
+  </Card>
+</CardGrid>

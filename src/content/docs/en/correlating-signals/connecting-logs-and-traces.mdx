@@ -1,0 +1,121 @@
+---
+title: 'Connecting Logs and Traces'
+description: 'How a tracer injects trace_id and span_id into log output via log injection, the dd.* attribute convention, and the payoff of pivoting from one log line to its exact distributed trace.'
+sidebar:
+  order: 1
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The idea in one sentence
+
+A tracer already knows which span is active while your code handles a request, so **log injection** is simply the tracer handing that active `trace_id` (and `span_id`) to your logging library, so every log line written during that request carries the identifiers needed to find it again.
+
+## Without it: a log line with nowhere to go
+
+```text
+2026-07-08T10:14:02Z ERROR Failed to charge card for order 48213
+```
+
+This line tells you something failed — it does not tell you which downstream call was slow, which service further down the chain actually produced the error, or what else happened during the same request. Without an identifier stamped onto both the log and the trace, correlating them means guessing by timestamp and hoping nothing else touched that host in the same second.
+
+## The general mechanism: a log integration reads the active span
+
+Every tracer keeps the currently active span in some form of request-scoped context — thread-local in a threaded runtime, async-local (or continuation-local) in an event-loop runtime. A **log injection** integration is a small hook into your logging library — a formatter, a processor, or a patched logger method — that runs on every log record and asks the tracer "what span is active right now?" If there is one, it copies that span's `trace_id` and `span_id` onto the record before it is emitted. Enable it once, and every log statement already in the codebase benefits, without being touched individually.
+
+## One concrete example: Node.js
+
+```javascript
+require('dd-trace').init({
+  log_injection: true
+});
+```
+
+That flag is the entire integration step for a Node.js service using `dd-trace`. Once it is set, any log emitted through a supported logging library (`pino`, `winston`, `bunyan`) automatically gets the active trace context attached to its structured output — no change to any individual `logger.info(...)` or `logger.error(...)` call anywhere in the app.
+
+## The dd.* convention: identity riding along in the log line
+
+```json
+{
+  "level": "error",
+  "message": "Failed to charge card for order 48213",
+  "dd": {
+    "trace_id": "6746734253672554013",
+    "span_id": "3993638273767594310",
+    "env": "production",
+    "service": "checkout-service",
+    "version": "2.4.1"
+  }
+}
+```
+
+Datadog tracers converge on a `dd.*` namespace for these injected fields. `dd.trace_id` and `dd.span_id` are the pivot keys — they name the exact trace and the exact span that was executing when this line was written. `dd.env`, `dd.service`, and `dd.version` are the unified service tagging triple riding along too, which means this single log line carries enough identity to also be found through the structured logging and facets built out in the Log Management module — it is not just correlatable to a trace, it is a first-class faceted log event in its own right.
+
+## The payoff: one click, not a manual search
+
+Before log injection, an error-severity log line sits by itself, with no easy way to see the request around it — what called this service, what it called next, where the time went. After log injection, because the log carries `dd.trace_id`, Datadog can put a "view trace" pivot directly on that log line in the Logs Explorer — one click, and you land on the exact distributed trace, with every span across every service that took part in that request, spans that never looked at the log at all.
+
+<Mermaid title="From a log line to its trace" code={logTraceInjectionDiagramEn} />
+
+export const logTraceInjectionDiagramEn = `flowchart LR
+  A[Incoming request] --> B[Tracer starts span]
+  B --> C["App code calls logger.error(...)"]
+  C --> D["Log injection hook reads active span"]
+  D --> E["Log emitted with dd.trace_id, dd.span_id, dd.env/service/version"]
+  E --> F[Datadog Log Management]
+  F -->|click dd.trace_id| G[APM distributed trace view]
+`
+
+<Callout title="The one-line takeaway">
+Log injection is the tracer handing its active `trace_id`/`span_id` to your logging library — enable it once (e.g. `log_injection: true` in `dd-trace`), and the `dd.*` fields it stamps onto every log line turn "here's an error, good luck" into a one-click pivot to the exact distributed trace that produced it.
+</Callout>
+
+export const quizConnectingLogsTracesEn = [
+  {
+    q: 'What does a tracer\'s log injection integration actually do to a log record?',
+    options: [
+      'It deletes low-severity log lines before they are emitted',
+      'It reads the currently active span and attaches its trace_id and span_id to the log record',
+      'It replaces the log message with the trace itself',
+      'It sends the log directly to the APM backend instead of Log Management'
+    ],
+    answer: 1
+  },
+  {
+    q: 'In require(\'dd-trace\').init({ log_injection: true }), what is required elsewhere in the app to get injected trace context on every log line?',
+    options: [
+      'Nothing else — no changes to individual logger.info/logger.error calls are required',
+      'Every log statement must be rewritten to manually pass trace_id',
+      'A separate Grok parser must be written for each log line',
+      'The logging library must be replaced with dd-trace\'s own logger'
+    ],
+    answer: 0
+  },
+  {
+    q: 'What do dd.env, dd.service, and dd.version represent when they show up in an injected log line?',
+    options: [
+      'A random trace sampling decision',
+      'The unified service tagging triple, the same identity used across metrics and traces',
+      'The Datadog site the log was sent to',
+      'The log\'s retention period'
+    ],
+    answer: 1
+  },
+  {
+    q: 'What is the concrete payoff of connecting a log line to its trace via dd.trace_id?',
+    options: [
+      'Logs are indexed faster',
+      'You can delete the trace and keep only the log',
+      'From that one log line you can pivot directly to the full distributed trace that produced it',
+      'The log line no longer needs a service tag'
+    ],
+    answer: 2
+  }
+]
+
+<Quiz client:visible id="correlating-signals/connecting-logs-and-traces" questions={quizConnectingLogsTracesEn} />
+
+<ProgressTracker client:visible id="correlating-signals/connecting-logs-and-traces" />

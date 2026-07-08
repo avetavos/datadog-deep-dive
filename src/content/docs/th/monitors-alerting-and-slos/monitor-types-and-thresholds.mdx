@@ -1,0 +1,130 @@
+---
+title: 'Monitor Types กับ Thresholds'
+description: 'Datadog Monitor ประเมิน query แล้ว alert อย่างไร โฟกัสที่ metric alert — critical/warning threshold ที่ trigger เทียบกับ recovery threshold แยกที่กันไม่ให้ flapping และ evaluation_delay'
+sidebar:
+  order: 1
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ไอเดียหลักในหนึ่งประโยค
+
+Datadog **Monitor** คือ query ที่บันทึกไว้บวกกับกฎที่แปลงผลลัพธ์ของ query นั้นให้กลายเป็น state — OK, Warn, Alert หรือ No Data — และในบรรดา monitor type ทั้งหมด **metric alert** คือตัวที่เข้าใจกลไก threshold ได้ชัดที่สุด
+
+## หลาย monitor type แต่ mental model เดียว
+
+Datadog มี monitor type หลายแบบ ได้แก่ **metric alert** (query กับ metric ตัวไหนก็ได้), **log alert** (query กับ log event ที่ตรงกับ search), **APM/trace-analytics alert** (query กับข้อมูล span หรือ trace), **composite** (รวม monitor อื่นเข้าด้วยกันด้วย boolean logic), **synthetics alert** (ดู pass/fail history ของ Synthetic test), **SLO alert** (ดู error budget ของ SLO) และแบบอื่น ๆ เช่น process check กับ Watchdog anomaly alert
+
+ทั้งหมดนี้เสียบเข้ากับกลไก alerting และ notification ตัวเดียวกัน — concept ของ state, threshold และ message เหมือนกันหมด สิ่งที่ต่างมีแค่ข้อมูลมาจากไหน บทเรียนนี้ (และบทที่เหลือใน module นี้) ใช้ **metric alert** เป็นตัวอย่างที่จับต้องได้ เพราะโครงสร้าง threshold ของมันคือ shape ที่ monitor type อื่นเอาไปใช้ในทางเดียวกัน
+
+## โครงสร้าง threshold ของ metric alert
+
+query ของ metric alert มี comparison อยู่ในตัวมันเองแล้ว และ `options.thresholds` ก็สะท้อนและขยายมันต่อ
+
+```json
+{
+  "name": "High CPU usage on payments-api",
+  "type": "metric alert",
+  "query": "avg(last_5m):avg:system.cpu.user{service:payments-api} > 90",
+  "options": {
+    "thresholds": {
+      "critical": 90,
+      "warning": 80,
+      "critical_recovery": 70,
+      "warning_recovery": 50
+    }
+  }
+}
+```
+
+- **`critical`** — ค่าที่ถ้าข้ามไปจะดัน monitor เข้า Alert state ปกติจะตรงกับ comparison ที่เขียนอยู่ใน `query` string อยู่แล้ว
+- **`warning`** — เส้นที่ต่ำกว่าและ severity อ่อนกว่า ถ้าข้ามจะดัน monitor เข้า Warn state มีประโยชน์ตรงที่เห็นค่ากำลัง drift ไปในทิศทางที่ไม่ดีก่อนที่มันจะกลายเป็นการ page จริง
+
+`critical` กับ `warning` ทั้งคู่คือ threshold ที่ใช้ **trigger** — ตอบคำถามว่า "เมื่อไหร่ถึงจะนับว่านี่คือปัญหา"
+
+## Recovery threshold: ตัวเลขอีกชุดหนึ่งโดยตั้งใจ
+
+`critical_recovery` กับ `warning_recovery` เป็นฟิลด์แยกต่างหาก และตอบคำถามคนละอย่าง คือ "เมื่อไหร่ถึงจะนับว่าปัญหานี้ *จบแล้ว*" ถ้าไม่ตั้งค่าไว้ Datadog จะ default ให้เท่ากับ trigger threshold แต่ทีมส่วนใหญ่ override มันโดยตั้งใจ
+
+เหตุผลที่ gap ตรงนี้สำคัญคือ ถ้า recovery threshold เท่ากับ trigger threshold metric ที่แกว่งอยู่แถว 90 พอดีจะ alert แล้ว recover แล้ว alert แล้ว recover วนไปเรื่อย ๆ พฤติกรรมนี้เรียกว่า **flapping** และมันคือวิธีที่เร็วที่สุดวิธีหนึ่งที่ทำให้ทีม on-call เลิกเชื่อ (แล้วเริ่มเมิน) การ page ของตัวเอง
+
+การตั้ง `critical_recovery` ให้ต่ำกว่า `critical` อย่างมีนัยสำคัญ — 70 แทนที่จะเป็น 90 — สร้าง dead zone ขึ้นมา เมื่อ monitor fire ไปแล้ว ค่าต้องลดลงไปมากพอสมควรก่อนที่ Datadog จะถือว่ามัน resolve จริง ๆ ค่าที่เด้งอยู่ระหว่าง 88 กับ 92 จะค้างอยู่ใน Alert state ตลอด แทนที่จะ flap เข้าออกไปมา
+
+## `evaluation_delay`: อย่า alert จากข้อมูลที่มาไม่ครบ
+
+metric บางตัวมาถึงช้ากว่าปกติ — metric เกี่ยวกับ cost/billing หรือ metric ที่ aggregate มาจาก pipeline upstream ที่ช้าเป็นตัวอย่างที่พบบ่อย ถ้าไม่คิดถึง lag ตรงนี้ evaluation window ของ monitor จะดูต่ำผิดปกติหรือดูไม่ครบ และอาจ trigger (หรือ flap) จากข้อมูลที่จริง ๆ ยังมาไม่ครบด้วยซ้ำ
+
+`evaluation_delay` เลื่อนจุดเวลาที่ query ถูกประเมิน เป็นหน่วยวินาที
+
+```json
+{
+  "options": {
+    "evaluation_delay": 300
+  }
+}
+```
+
+เมื่อตั้ง `evaluation_delay: 300` monitor จะประเมิน window ของมันช้ากว่าปกติห้านาที ให้เวลาข้อมูลที่มาช้าได้โผล่มาก่อนที่จะมีการตัดสินใจ
+
+<Mermaid title="Metric alert state transitions" code={thresholdDiagramTh} />
+
+export const thresholdDiagramTh = `flowchart LR
+  OK -->|value crosses warning e.g. 80| WARN[Warn]
+  WARN -->|value crosses critical e.g. 90| ALERT[Alert]
+  OK -->|value crosses critical directly| ALERT
+  ALERT -->|value drops below critical_recovery e.g. 70| WARN
+  WARN -->|value drops below warning_recovery e.g. 50| OK`
+
+<Callout title="The one-line takeaway">
+`critical` กับ `warning` เป็นตัวตัดสินว่า metric alert จะ trigger เมื่อไหร่ ส่วน `critical_recovery` กับ `warning_recovery` เป็นฟิลด์แยกที่ตัดสินแค่ว่ามันจะกลับไป OK เมื่อไหร่ — การเว้น gap ระหว่างสองชุดนี้ป้องกัน flapping และ `evaluation_delay` ปกป้อง monitor จากการตัดสินใจบนข้อมูลที่ยังมาไม่ครบ
+</Callout>
+
+export const quizMonitorThresholdsTh = [
+  {
+    q: 'ใน Datadog metric alert ความสัมพันธ์ระหว่าง `critical` threshold กับ `critical_recovery` threshold คืออะไร',
+    options: [
+      'ต้องเท่ากันเสมอ monitor ถึงจะทำงานได้',
+      '`critical` ตัดสินว่า monitor จะเข้า Alert state เมื่อไหร่ ส่วน `critical_recovery` ตัดสินแค่ว่ามันจะกลับไป OK เมื่อไหร่',
+      '`critical_recovery` ถูกประเมินก่อน `critical` ใน query',
+      '`critical_recovery` กำหนด retention period ของ alert history',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'ทำไมทีมส่วนใหญ่ถึงตั้ง `critical_recovery` ให้ต่ำกว่า `critical` แทนที่จะตั้งให้เท่ากัน',
+    options: [
+      'เพื่อให้ monitor ประเมินได้เร็วขึ้น',
+      'เพื่อลดจำนวน metric point ที่ต้องใช้ในการประเมิน',
+      'เพื่อสร้าง gap ที่ป้องกัน flapping เมื่อ metric แกว่งอยู่แถว critical threshold พอดี',
+      'เพราะ Datadog บังคับให้ recovery threshold ต้องต่างจาก trigger threshold',
+    ],
+    answer: 2,
+  },
+  {
+    q: '`evaluation_delay` ทำหน้าที่อะไร',
+    options: [
+      'เลื่อนการส่ง notification หลังจาก monitor trigger ไปแล้ว',
+      'เลื่อนจุดเวลาที่ query ถูกประเมิน เพื่อไม่ให้ alert จากข้อมูลที่ยังมาไม่ครบ',
+      'กำหนดระยะเวลาที่ Downtime mute monitor',
+      'ควบคุมความถี่ที่ monitor เช็ค query ใหม่',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'ข้อไหนถูกต้องเกี่ยวกับ monitor type หลากหลายแบบของ Datadog (metric alert, log alert, composite, synthetics alert, SLO alert ฯลฯ)',
+    options: [
+      'แต่ละแบบมีระบบ notification และ escalation แยกกันเป็นของตัวเอง',
+      'ทั้งหมดใช้กลไก alerting/notification เดียวกันข้างใต้ ต่างกันแค่แหล่งข้อมูล',
+      'มีแค่ metric alert เท่านั้นที่รองรับ threshold',
+      'composite monitor ส่ง notification ไม่ได้',
+    ],
+    answer: 1,
+  },
+]
+
+<Quiz client:visible id="monitors-alerting-and-slos/monitor-types-and-thresholds" questions={quizMonitorThresholdsTh} />
+
+<ProgressTracker client:visible id="monitors-alerting-and-slos/monitor-types-and-thresholds" />

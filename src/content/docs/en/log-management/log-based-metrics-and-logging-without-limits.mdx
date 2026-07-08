@@ -1,0 +1,112 @@
+---
+title: 'Log-Based Metrics and Logging without Limits'
+description: 'How Logging without Limits decouples log ingestion from log indexing — log-based metrics off the full ingest stream, Log Archives, and Rehydration.'
+sidebar:
+  order: 3
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The idea in one sentence
+
+**Logging without Limits** is Datadog's name for decoupling log *ingestion* from log *indexing*, and its most important consequence is that you can generate a log-based metric, or send a log to an Archive, from the entire ingest stream — even for logs an Exclusion Filter drops from every index.
+
+## Log-based metrics: measuring logs you don't index
+
+A **log-based metric** is computed from the full ingest stream — the same point in the pipeline the previous lesson's Exclusion Filters act on — not from what's already indexed. That distinction is the whole point: a log-based metric keeps working even for logs that never make it into any index.
+
+Two shapes of log-based metric matter:
+
+- A **COUNT** metric counts how many logs match a filter query, e.g. `@status:error`.
+- A **DISTRIBUTION** metric aggregates a numeric log attribute, e.g. `@duration`, giving you percentiles and averages the way any distribution metric would.
+
+```json
+{
+  "data": {
+    "id": "logs.page.load.count",
+    "attributes": {
+      "compute": { "aggregation_type": "distribution", "path": "@duration" },
+      "filter": { "query": "service:web* AND @http.status_code:[200 TO 299]" },
+      "group_by": [ { "path": "@http.status_code", "tag_name": "status_code" } ]
+    }
+  }
+}
+```
+
+This example defines a distribution metric over the `@duration` attribute, scoped to successful requests on `web*` services, grouped by status code. Log-based metrics are computed at **10-second granularity** and retained for **15 months** — far longer than most index `retention_days` settings, and at a fraction of the cost, because the metric is a small aggregate, not the full log body.
+
+The practical payoff: you can set an index Exclusion Filter to drop `level:debug` logs entirely (saving on indexing cost), while still keeping a log-based COUNT metric of how many debug logs occurred per service, per minute, for over a year. You lose the ability to read individual debug log lines after they age out or get excluded, but you never lose the trend or anomaly signal.
+
+## Log Archives: the full stream, cheaply, for the long term
+
+A **Log Archive** sends effectively the full, un-excluded log stream to storage you own — S3, GCS, or Azure Blob — regardless of what any index's Exclusion Filters are doing. Archiving happens independently of indexing decisions, which is what makes it suitable for compliance and long-term retention: a log can be excluded from every index (cheap, no full-price search) and still land in the archive (cheap, long-term, not searchable without extra steps).
+
+Archives are not searchable in the Logs Explorer as-is. They are cold storage in your own cloud account, at your own cloud storage's rates, which is precisely why they're viable for retaining effectively everything for years when full index retention would not be.
+
+## Rehydration: temporarily re-indexing a slice of the past
+
+When you actually need to investigate something inside an archive — a `level:debug` burst around an incident from four months ago, say — you use **Rehydration**: a time-scoped slice of the archive is re-indexed, typically into a temporary index, so it becomes searchable again in the Logs Explorer for as long as you need it. Rehydration is deliberately scoped by time range (and often by query) rather than replaying the whole archive, because re-indexing is what costs money — you're paying to make a slice searchable again, not to store it, since it was already sitting safely in the archive.
+
+<Mermaid title="Ingestion vs. indexing: where each path leads" code={loggingWithoutLimitsDiagram} />
+
+export const loggingWithoutLimitsDiagram = `flowchart LR
+  A[Full ingest stream] --> B[Log-based metric\\nCOUNT or DISTRIBUTION\\n10s granularity, 15 months]
+  A --> C[Log Archive\\nS3 / GCS / Azure Blob]
+  A --> D{Index Exclusion Filter}
+  D -->|kept| E[Indexed: searchable,\\nfull price, retention_days]
+  D -->|excluded| F[Not in this index]
+  C -.->|Rehydration: time-scoped| G[Temporary index\\nsearchable again]`
+
+<Callout title="The one-line takeaway">
+**Logging without Limits** means ingestion and indexing are decoupled — a **log-based metric** (COUNT or DISTRIBUTION, 10-second granularity, 15-month retention) and a **Log Archive** (your own cheap cloud storage) both draw from the full ingest stream regardless of index Exclusion Filters, and **Rehydration** lets you temporarily re-index a time-scoped slice of an archive when you need to search it again.
+</Callout>
+
+export const quizLoggingWithoutLimits = [
+  {
+    q: 'A log-based metric is computed from which stream?',
+    options: [
+      'Only logs that made it into an index',
+      'The full ingest stream, before any index Exclusion Filter is applied',
+      'Only logs stored in a Log Archive',
+      'Only logs from the last 24 hours regardless of index settings',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'At what granularity and retention are log-based metrics kept?',
+    options: [
+      '1-minute granularity, 30 days retention',
+      '10-second granularity, 15 months retention',
+      '1-hour granularity, 7 days retention',
+      'Same granularity and retention as the source index',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'A Log Archive receives which logs?',
+    options: [
+      'Only logs that survive every index\'s Exclusion Filters',
+      'Effectively the full, un-excluded log stream, independent of index Exclusion Filters',
+      'Only logs matching a log-based metric filter',
+      'Only logs dropped by Agent-side exclude_at_match',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'What is Rehydration?',
+    options: [
+      'Permanently restoring an entire archive into the main index',
+      'A way to increase an index\'s daily_limit',
+      'Temporarily re-indexing a time-scoped slice of an archive so it becomes searchable again',
+      'A Processing Pipeline processor that re-parses old logs',
+    ],
+    answer: 2,
+  },
+]
+
+<Quiz client:visible id="log-management/log-based-metrics-and-logging-without-limits" questions={quizLoggingWithoutLimits} />
+
+<ProgressTracker client:visible id="log-management/log-based-metrics-and-logging-without-limits" />

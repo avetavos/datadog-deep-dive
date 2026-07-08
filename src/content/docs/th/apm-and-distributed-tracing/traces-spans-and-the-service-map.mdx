@@ -1,0 +1,132 @@
+---
+title: 'Traces, Spans, and the Service Map'
+description: 'โมเดลข้อมูล trace/span — root span, ความสัมพันธ์ parent/child, auto-instrumentation เทียบกับ manual span และ Service Map ที่สร้างตัวเองจาก traffic จริง'
+sidebar:
+  order: 1
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ไอเดียหลักในหนึ่งประโยค
+
+**trace** คือ journey ทั้งหมดของ request หนึ่งตัวตั้งแต่ต้นจนจบ ประกอบขึ้นจาก **span** ที่เรียงตัวเป็น tree แบบ parent/child และ Datadog สร้าง **Service Map** ขึ้นมาโดยอ่าน structure ของ tree นั้นตรง ๆ จาก traffic จริง ไม่ใช่จากไดอะแกรมที่ใครวาดไว้เอง
+
+## Span: หน่วยย่อยของ trace
+
+span แทน work หนึ่งหน่วย — HTTP request หนึ่งตัว, database query หนึ่งครั้ง, function call หนึ่งครั้ง แต่ละ span มี field สำคัญไม่กี่ตัว
+
+- **name** — ประเภทของ operation เช่น `web.request` หรือ `postgres.query`
+- **resource** — สิ่งที่ทำแบบเจาะจงกว่านั้น เช่น `GET /checkout` หรือ `SELECT * FROM orders`
+- **start กับ duration** — span เริ่มเมื่อไหร่และใช้เวลานานแค่ไหน
+- **ความสัมพันธ์ parent/child** — `parent_id` ที่ชี้ไปที่ span ซึ่งเป็นต้นเหตุให้ span นี้เกิดขึ้น
+
+span ที่ไม่มี `parent_id` คือ **root span** — เป็นจุดเริ่มต้นของ trace มักเป็น inbound request ที่ทำให้ทุกอย่างเริ่มทำงาน span ที่เหลือทุกตัวใน trace ไล่สายกลับไปหา root นี้ทีละ parent ซึ่งเป็นสิ่งที่ทำให้ span กองหนึ่งกลายเป็น tree
+
+```json
+{
+  "trace_id": "6141ee2f9a4d4b2e8f3c1a90",
+  "span_id": "a1b2c3d4",
+  "parent_id": null,
+  "name": "web.request",
+  "resource": "GET /checkout",
+  "service": "checkout-web",
+  "start": 1699999999000000000,
+  "duration": 45000000
+}
+```
+
+`parent_id: null` ตรงนี้เองที่ทำให้ span นี้เป็น root — span ทุกตัวที่อยู่ downstream ของมัน (database query ที่มัน trigger, การเรียก payments service และอื่น ๆ) จะมี `parent_id` ที่ไล่กลับมาที่นี่ในที่สุด
+
+## Auto-instrumentation เทียบกับ manual span
+
+span ส่วนใหญ่ใน trace โผล่ขึ้นมาเองโดยไม่ต้องเขียน tracing code เลย Datadog tracing library เข้าไป hook กับ framework, HTTP client และ database driver ของคุณ — พอ request เข้ามา, พอมี outbound call ออกไป, พอ query รันขึ้น มันสร้าง span ให้อัตโนมัติ นี่คือ **auto-instrumentation** และเป็นเหตุผลที่การติดตั้ง tracer เข้ากับ web app ทั่วไปให้ trace ที่ค่อนข้างสมบูรณ์ตั้งแต่วันแรก
+
+แต่ auto-instrumentation หยุดที่ขอบของ business logic ของคุณเอง ถ้าอยากได้ visibility ของโค้ดบล็อกใดบล็อกหนึ่งโดยเฉพาะ — การคำนวณส่วนลด, step ใน batch job, cache lookup ที่เขียนเอง — ต้องห่อมันด้วย **manual span**
+
+```python
+from ddtrace import tracer
+
+def process_order(order):
+    # auto-instrumentation already created a span for the inbound HTTP request;
+    # this manual span adds visibility into a specific block of business logic
+    with tracer.trace("checkout.apply_discount", resource="apply_discount") as span:
+        span.set_tag("order.id", order.id)
+        discount = calculate_discount(order)
+        span.set_tag("discount.amount", discount)
+    return discount
+```
+
+manual span ตรงนี้กลายเป็น child ของ span ที่ active อยู่ตอนที่ `process_order` รัน มักเป็น root span `web.request` หรือ manual span อีกตัวที่ซ้อนอยู่ข้างบน auto-instrumentation กับ manual span ไม่ใช่เทคนิคที่แข่งกัน แต่รวมกันเป็น tree เดียวกัน
+
+## Service Map: สร้างจาก tree ไม่ใช่วาดเอง
+
+span ทุกตัวมี tag `service` ติดอยู่ — `checkout-web`, `payments-service`, `inventory-service` เมื่อ child ของ span หนึ่งมี tag `service` **ต่างจาก** parent นั่นคือ dependency จริงที่สังเกตเห็นระหว่างสอง service ณ ตอนที่ request ข้าม boundary นั้นจริง ๆ
+
+**Service Map** คือ Datadog อ่าน signal ตัวนี้แหละจากทุก trace ที่ไหลผ่านระบบของคุณ แล้วรวม edge ทั้งหมดของ parent→child, service→service เข้าเป็นกราฟเดียวที่ live อยู่ตลอดเวลา เพราะมันประกอบขึ้นจากความสัมพันธ์ span จริง ไม่ใช่คนคอยดูแล มันเลย update ตัวเองทันทีที่ pattern ของ traffic เปลี่ยน call ใหม่ไปหา downstream โผล่บนแผนที่ทันทีที่เริ่มเกิดขึ้นจริง และ service ที่เลิกใช้แล้วก็หายไปจากแผนที่เมื่อไม่มีใครเรียกมันอีก เทียบกับไดอะแกรม architecture ที่วาดมือ ซึ่งถูกต้องแค่วันที่วาดแล้วก็เก่าไปในอีกเดือนถัดมา
+
+<Mermaid title="From span tree to Service Map" code={serviceMapDiagramTh} />
+
+export const serviceMapDiagramTh = `flowchart LR
+  A[Root span: web.request service checkout-web] --> B[Span: db.query service checkout-web]
+  A --> C[Span: http.request service payments-service]
+  C --> D[Span: db.query service payments-service]
+  A --> E[Span: http.request service inventory-service]
+  subgraph SM[Service Map derived from the span tree]
+    S1[checkout-web] --> S2[payments-service]
+    S1 --> S3[inventory-service]
+  end
+  A -.observed service boundary crossings become.-> SM`
+
+<Callout title="The one-line takeaway">
+trace คือ tree ของ **span** ที่ root อยู่ที่ span ซึ่งไม่มี parent, span มาจาก **auto-instrumentation** (hook เข้า framework/HTTP/DB) บวกกับ **manual span** ใดก็ตามที่คุณเพิ่มรอบ custom logic และ **Service Map** ก็แค่เอาความสัมพันธ์ parent→child กับ tag `service` ของ span พวกนั้นมา render สด ๆ — มัน update ตัวเองตาม traffic ที่เปลี่ยนไป ไม่เก่าเหมือนไดอะแกรมที่วาดมือ
+</Callout>
+
+export const quizTracesSpansTh = [
+  {
+    q: 'อะไรที่บอกว่า span หนึ่งเป็น root span ของ trace',
+    options: [
+      'มันมี duration ยาวที่สุดใน trace',
+      'มันไม่มี `parent_id`',
+      'มันชื่อ `web.request` เสมอ',
+      'มันถูกสร้างเป็นตัวสุดท้ายตามลำดับเวลา',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'ความต่างหลักระหว่าง auto-instrumentation กับ manual span คืออะไร',
+    options: [
+      'manual span จะมี parent ไม่ได้',
+      'auto-instrumentation ทำงานได้แค่กับ Python',
+      'auto-instrumentation ถูกสร้างอัตโนมัติจาก hook เข้า framework/HTTP client/DB driver ส่วน manual span คือโค้ดที่คุณเขียนเองเพื่อห่อ custom logic บล็อกใดบล็อกหนึ่ง',
+      'ไม่มีความต่าง — ทั้งสองให้ข้อมูลเหมือนกันทุกอย่าง',
+    ],
+    answer: 2,
+  },
+  {
+    q: 'Service Map ถูกสร้างขึ้นจากอะไรจริง ๆ',
+    options: [
+      'ไฟล์ YAML ที่คุณดูแลอธิบาย architecture เอง',
+      'ความสัมพันธ์ parent/child ของ span กับ tag `service` ของแต่ละ span ที่สังเกตจาก trace จริง',
+      'ไดอะแกรมที่ engineer วาดแล้ว upload เข้าไป',
+      'DNS record ที่ Agent เก็บมา',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'ทำไม Service Map ถึงแม่นยำตลอดเวลาโดยไม่มีใครต้อง update มันเอง',
+    options: [
+      'Datadog support ตรวจสอบให้ทุกสัปดาห์',
+      'มันแสดงแค่ service ที่ตั้งค่าไว้ตอน setup เท่านั้น',
+      'มันถูก generate ใหม่จากความสัมพันธ์ span/service จริงใน traffic สด ๆ dependency ใหม่หรือที่ถูกถอดออกจึงโผล่ตาม traffic ที่เปลี่ยนไปจริง',
+      'มันถูก cache ไว้ครั้งเดียวแล้วไม่เปลี่ยนอีกเลย',
+    ],
+    answer: 2,
+  },
+]
+
+<Quiz client:visible id="apm-and-distributed-tracing/traces-spans-and-the-service-map" questions={quizTracesSpansTh} />
+
+<ProgressTracker client:visible id="apm-and-distributed-tracing/traces-spans-and-the-service-map" />

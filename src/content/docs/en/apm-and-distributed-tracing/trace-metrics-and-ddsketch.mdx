@@ -1,0 +1,115 @@
+---
+title: 'Trace Metrics and DDSketch'
+description: 'How Datadog computes hit count, error count, and latency percentiles from every span that reaches it — unaffected by ingestion sampling or retention filters — using the DDSketch distribution type.'
+sidebar:
+  order: 3
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The idea in one sentence
+
+Regardless of both sampling layers covered in the previous lesson, Datadog continuously computes **trace metrics** — hit count, error count, and latency — from every span that reaches the Agent/Datadog, so your traffic and latency dashboards stay statistically accurate even when only a fraction of individual traces remain inspectable.
+
+## Trace metrics: computed from every span, continuously
+
+For every service and resource, Datadog aggregates three things off the stream of spans reaching it:
+
+- **hit count** — how many requests/operations happened.
+- **error count** — how many of them errored.
+- **latency** — the distribution of how long they took.
+
+This aggregation happens continuously and is derived from every span that reaches the Agent/Datadog — it is not computed by opening and re-reading individual stored traces later. That's the key distinction from the previous lesson: ingestion-time sampling and retention filters govern whether a *specific full trace* is later available to open and inspect, but the *aggregate counting and timing* runs off the span stream itself, independently of those two layers.
+
+## DDSketch: percentiles that survive aggregation
+
+Latency isn't one number — you care about the distribution, especially the tail (p95, p99), not just the average. But percentiles have an awkward property: you can't average two percentiles from two hosts and get a correct combined percentile. Datadog solves this with **DDSketch**, a sketch-based distribution metric type built specifically so percentile estimates stay accurate and **mergeable** at scale:
+
+```python
+# DDSketch merge is why percentiles stay accurate across many hosts/processes
+sketch_host_a = DDSketch(relative_accuracy=0.01)
+sketch_host_b = DDSketch(relative_accuracy=0.01)
+# each host's sketch summarizes every observed span latency locally
+merged = sketch_host_a.merge(sketch_host_b)
+p95 = merged.get_quantile_value(0.95)
+```
+
+Each process or host keeps a local sketch summarizing the latencies it observed; sketches from many hosts merge into one combined sketch, and a percentile pulled from the merged sketch is still an accurate estimate of the true global percentile — something a naive average-of-percentiles approach cannot give you.
+
+## Why this is unaffected by sampling, but example-trace access is not
+
+This is the point worth internalizing carefully: **trace metrics and their DDSketch-backed percentiles are not affected by trace sampling or retention filters.** Neither layer 1 (ingestion-time sampling) nor layer 2 (APM Retention Filters) touches the hit count, error count, or p50/p95/p99 latency you see on a service's overview page — those numbers come from the span stream itself, aggregated continuously.
+
+What *is* affected by both layers is your ability to open one specific **example trace** — say, the slowest request in the last hour, or one instance of a particular error. Finding and inspecting that individual trace depends on it having survived ingestion-time sampling *and* on a retention filter having kept it:
+
+```text
+# Two different questions, two different data paths
+p95 latency for checkout-web        <- DDSketch, from every span reaching Datadog, unaffected by sampling
+"show me one slow example trace"    <- must have been ingested AND retained to open
+```
+
+This is exactly why you can trust a latency or error-rate dashboard even under an aggressive ingestion sampling rate, while still needing a well-designed retention filter (from the previous lesson) to guarantee you can actually find and inspect a specific slow or erroring trace when you go looking for one.
+
+<Mermaid title="Aggregate metrics vs. individual trace access" code={traceMetricsDiagramEn} />
+
+export const traceMetricsDiagramEn = `flowchart LR
+  Spans[Every span reaching Agent/Datadog] --> Stats[Trace metrics: hit count, error count, latency]
+  Stats --> Sketch[DDSketch per service/resource]
+  Sketch --> P[p50/p95/p99 dashboards: unaffected by sampling]
+  Spans -->|ingestion-time sampling| L1[Layer 1 gate]
+  L1 -->|retention filters rate/trace_rate| L2[Layer 2 gate]
+  L2 --> Kept[Individual example traces you can open]`
+
+<Callout title="The one-line takeaway">
+Trace metrics — hit count, error count, and DDSketch-backed latency percentiles — are computed from every span reaching Datadog and are **unaffected by ingestion sampling or retention filters**; only your ability to open and inspect one **specific example trace** depends on those two layers, which is why the dashboard stays trustworthy even under aggressive sampling.
+</Callout>
+
+export const quizTraceMetricsDdsketchEn = [
+  {
+    q: 'What are the three things Datadog continuously computes as trace metrics for a service/resource?',
+    options: [
+      'CPU usage, memory usage, disk usage',
+      'Hit count, error count, and latency',
+      'Number of manual spans, number of auto-instrumented spans, and trace_rate',
+      'Ingestion rate, retention rate, and sample rate',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'Why is DDSketch used for latency percentiles instead of simply averaging percentiles from different hosts?',
+    options: [
+      'Averaging percentiles from different hosts produces an incorrect combined percentile; DDSketch sketches are designed to merge accurately',
+      'DDSketch is only needed for error counts, not latency',
+      'Percentiles do not need aggregation across hosts',
+      'DDSketch replaces the need for hit counts',
+    ],
+    answer: 0,
+  },
+  {
+    q: 'Which of these is unaffected by ingestion-time sampling and retention filters?',
+    options: [
+      'Whether a specific example trace can be opened and inspected',
+      'The p95 latency shown on a service overview page',
+      'Whether a trace was retained long-term',
+      'Whether a trace was ingested at all',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'A team runs an aggressive 1% ingestion sampling rate. What can they still trust?',
+    options: [
+      'Nothing — all dashboards become unreliable below 100% ingestion',
+      'Only the Service Map, not latency',
+      'The aggregate hit count, error count, and latency percentiles, since those are computed from the span stream independent of sampling',
+      'Only traces matched by a retention filter',
+    ],
+    answer: 2,
+  },
+]
+
+<Quiz client:visible id="apm-and-distributed-tracing/trace-metrics-and-ddsketch" questions={quizTraceMetricsDdsketchEn} />
+
+<ProgressTracker client:visible id="apm-and-distributed-tracing/trace-metrics-and-ddsketch" />

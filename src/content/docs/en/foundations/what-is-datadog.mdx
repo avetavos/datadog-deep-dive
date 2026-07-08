@@ -1,0 +1,126 @@
+---
+title: 'What Is Datadog?'
+description: 'Datadog as a unified observability SaaS — the Agent and backend, the product family built on tagged telemetry, sites/regions, and API keys vs. Application keys.'
+sidebar:
+  order: 2
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The idea in one sentence
+
+Datadog is one SaaS backend that a lightweight **Agent** (and your instrumented code) feeds with tagged telemetry, and every product you see in the UI — Infrastructure Monitoring, Log Management, APM, Monitors/SLOs, Software Catalog — is really just a different lens over that same stream of data.
+
+## One platform, several products
+
+Most teams meet Datadog one product at a time — someone installs the Agent for host metrics, someone else turns on APM, someone else starts shipping logs. It's easy to assume these are separate tools that happen to share a login. They aren't. Underneath, there is exactly one thing arriving at Datadog's backend: **telemetry with tags attached to it**. Metrics, logs, traces, and process snapshots are different *shapes* of that telemetry, but they share the same tagging model, the same organization, and the same billing account.
+
+That single backend is what powers:
+
+- **Infrastructure Monitoring** — host and container metrics, the Host Map, resource-level dashboards.
+- **Log Management** — collection, processing pipelines, indexing, and search over log events.
+- **APM (Application Performance Monitoring)** — distributed traces, the service map, latency and error-rate views.
+- **Monitors & SLOs** — alerting rules and error-budget tracking evaluated over any of the above.
+- **Software Catalog** — a directory of services that ties ownership metadata back to the same metrics, logs, and traces.
+
+None of these are bolt-on tools with their own storage silo. They're views. The reason this matters practically: when you improve your tagging once (lesson 3 of this module covers this in depth), every one of these views gets better at the same time — you are not re-configuring five products, you're configuring one data model.
+
+## The Agent and the backend
+
+The **Agent** is a small piece of software you run next to your infrastructure — on a host, as a container, or as a Kubernetes DaemonSet. Its job is narrow: collect data locally and ship it to the Datadog backend over HTTPS. It does not render dashboards, evaluate monitors, or store history — all of that lives in Datadog's SaaS backend, which is why the Agent itself stays lightweight and disposable.
+
+<Mermaid title="Where telemetry comes from" code={platformDiagramEn} />
+
+export const platformDiagramEn = `flowchart LR
+    Host["Host / Container"] -->|metrics, checks| Agent
+    App["Instrumented app"] -->|traces| Agent
+    Files["Log files"] -->|logs| Agent
+    Agent -->|HTTPS intake| Backend["Datadog Backend (one site)"]
+    Backend --> Infra["Infrastructure Monitoring"]
+    Backend --> Logs["Log Management"]
+    Backend --> APM["APM"]
+    Backend --> Mon["Monitors / SLOs"]
+    Backend --> Cat["Software Catalog"]
+`
+
+## Sites and regions
+
+A Datadog organization does not float freely across the internet — it lives in exactly one **site** (Datadog's term for a region), such as `US1`, `US3`, `US5`, `EU1`, or `AP1`. The site you're on determines the hostnames your Agent and API calls must use — for example a `US1` org talks to `api.datadoghq.com`, while an `EU1` org talks to `api.datadoghq.eu`. Point an Agent at the wrong site's intake and it will authenticate against the wrong backend entirely — this is one of the most common first-day setup mistakes, and it's worth checking your site explicitly rather than assuming.
+
+```yaml
+# datadog.yaml (Agent main config) — site must match your org
+api_key: "<DD_API_KEY>"
+site: "datadoghq.eu"   # e.g. datadoghq.com (US1), datadoghq.eu (EU1), us3.datadoghq.com, ap1.datadoghq.com
+```
+
+## API keys vs. Application keys
+
+These two credential types get confused constantly because both are just strings you paste somewhere, but they authorize completely different things:
+
+- An **API key** authorizes *submitting data* — it's what the Agent puts in its config so it can send metrics, logs, and traces to Datadog. It is scoped to your organization, not to any individual person.
+- An **Application key** authorizes *acting as a user* — it's paired with a specific user's permissions and is used to call Datadog's read/management APIs (querying metrics, creating dashboards, managing monitors via API or Terraform). If that user is deactivated or loses permissions, anything using their Application key loses that access too.
+
+A simple rule of thumb: if you're configuring something to *send* data into Datadog, you need an API key. If you're writing a script or Terraform provider that needs to *read or manage* Datadog resources on someone's behalf, you need an Application key alongside an API key.
+
+```bash
+# Typical pairing for a script that talks to Datadog's API
+export DD_API_KEY="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+export DD_APP_KEY="yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+curl -X GET "https://api.datadoghq.com/api/v1/validate" \
+  -H "DD-API-KEY: ${DD_API_KEY}" \
+  -H "DD-APPLICATION-KEY: ${DD_APP_KEY}"
+```
+
+<Callout title="The one-line takeaway">
+Datadog is **one backend, one tagging model, many product views** — the Agent (or your instrumented code) ships tagged telemetry to the single site your org lives in, an **API key** lets that telemetry in, and an **Application key** lets an authenticated user's scripts and tools read or manage Datadog resources afterward.
+</Callout>
+
+export const quizWhatIsDatadogEn = [
+  {
+    q: 'Why do Infrastructure Monitoring, APM, and Log Management all improve when you fix your tagging once?',
+    options: [
+      'They are separate products with separate storage, so tagging must be fixed in each one manually',
+      'They are different views over the same tagged telemetry stream on one backend, so better tags help every view at once',
+      'Tagging only affects Infrastructure Monitoring',
+      'Tagging is applied per-dashboard, not per-product'
+    ],
+    answer: 1
+  },
+  {
+    q: 'What determines the API/intake hostname your Agent must send data to?',
+    options: [
+      'The Agent version',
+      'The programming language of your instrumented app',
+      'The Datadog site (region) your organization lives in',
+      'The type of telemetry (metrics vs. logs vs. traces)'
+    ],
+    answer: 2
+  },
+  {
+    q: 'What does an API key authorize?',
+    options: [
+      'Acting as a specific authenticated user to manage dashboards',
+      'Submitting telemetry data (metrics, logs, traces) into your organization',
+      'Deleting a Datadog organization',
+      'Changing which site your org is hosted in'
+    ],
+    answer: 1
+  },
+  {
+    q: 'You are writing a Terraform provider config that needs to create and manage Datadog monitors. Which credential(s) do you need?',
+    options: [
+      'Only an API key',
+      'Only an Application key',
+      'Both an API key and an Application key',
+      'Neither — Terraform uses the Agent\'s local config'
+    ],
+    answer: 2
+  }
+]
+
+<Quiz client:visible id="foundations/what-is-datadog" questions={quizWhatIsDatadogEn} />
+
+<ProgressTracker client:visible id="foundations/what-is-datadog" />

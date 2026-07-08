@@ -1,0 +1,126 @@
+---
+title: 'Cost Governance and Cloud Cost Management'
+description: 'How custom metric cost (tag cardinality) and log cost (indexed volume and retention) tie together into a single cost-governance story, and how Cloud Cost Management extends the same monitor mechanics to your cloud bill.'
+sidebar:
+  order: 2
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The idea in one sentence
+
+Datadog cost is driven by what you choose to keep indexed and queryable, not by raw ingestion volume, and **Cloud Cost Management** extends that same monitor-and-alert model all the way to your actual cloud bill.
+
+## Recap: two different cost levers, one theme
+
+Two earlier modules each taught a cost lever that looks, on the surface, like "more data means more cost" — but isn't quite that simple:
+
+- **Custom metrics** (Infrastructure & Metrics, Metrics without Limits) — cost comes from **tag cardinality**: the number of distinct tag-value combinations that get indexed and made queryable for a metric. You can submit a metric with a high-cardinality tag like `pod_name` cheaply, and only pay for the low-cardinality view — say `by service` — that you actually chose to index.
+- **Logs** (Log Management, indexes and exclusion filters) — cost comes from **indexed volume and retention**: which logs get written into an index at all, and for how many days. An exclusion filter that drops noisy, low-value logs before indexing, or an index configured with a shorter retention, is a cost decision, not a data-loss decision — the raw logs can still be archived.
+
+The common thread across both: Datadog rarely charges you for data merely showing up. It charges you for what you decided was worth keeping queryable, and for how long. Cost governance, in practice, means treating "what do I index, and at what cardinality or retention" as an explicit decision, the same way you'd review a database schema change.
+
+## Cloud Cost Management: your cloud bill as a metric source
+
+**Cloud Cost Management** takes that same philosophy one step further: it ingests your cloud provider's billing data — AWS Cost and Usage Reports, for example — and exposes it as a queryable metric source inside Datadog, alongside the infrastructure and APM metrics you already have. A query like `sum:aws.cost.amortized{servicename:ec2} by {account}` behaves like any other metric query: you can graph it, put it on a dashboard next to `system.cpu.user` for the same service, and — critically — alert on it.
+
+That last part matters because it means a cost spike can be caught with the exact same reflexes your team already has for a latency spike or an error-rate spike, instead of being discovered a month later when the invoice arrives.
+
+## A cost alert monitor, same mechanics as before
+
+```terraform
+resource "datadog_monitor" "cloud_cost_spike" {
+  name    = "EC2 cost anomaly"
+  type    = "cost alert"
+  message = "Unusual EC2 spend detected"
+
+  query = "formula(\"query1\").last(\"30d\").anomaly(direction=\"both\") > 6"
+
+  variables {
+    cloud_cost_query {
+      data_source = "cloud_cost"
+      name        = "query1"
+      query       = "sum:aws.cost.amortized{servicename:ec2} by {account}"
+      aggregator  = "sum"
+    }
+  }
+
+  monitor_thresholds {
+    critical = 6
+  }
+}
+```
+
+Read this the same way you'd read the `datadog_monitor` resource from the previous lesson, because it is the same resource type with a different `type` value:
+
+- **`type = "cost alert"`** — a monitor type dedicated to cloud cost data, alongside `metric alert`, `log alert`, and the rest.
+- **`variables.cloud_cost_query`** — instead of a plain metric query, the named query (`query1`) points at `data_source = "cloud_cost"` and pulls `sum:aws.cost.amortized{servicename:ec2} by {account}`, aggregated by `sum`.
+- **`query`** at the top level is a **formula** over that named query: `formula("query1").last("30d").anomaly(direction="both") > 6` looks back over a 30-day window and flags an anomaly in either direction.
+- **`monitor_thresholds.critical = 6`** — the same threshold mechanics as a `metric alert`, just applied to an anomaly score instead of a raw CPU percentage.
+
+Nothing here is a new alerting concept — it's the monitor primitives from the previous module (thresholds, `monitor_thresholds`, notification `message`) pointed at a new kind of data source. That's the whole point: cost governance doesn't need a separate tool bolted on the side, it plugs into the same monitors-as-code workflow from the previous lesson.
+
+<Mermaid title="From cloud billing data to a cost alert" code={costGovernanceDiagram} />
+
+export const costGovernanceDiagram = `flowchart LR
+  A[Custom metric tag cardinality] --> D[Cost governance decisions]
+  B[Log indexed volume and retention] --> D
+  C[Cloud provider billing data] --> E[Cloud Cost Management]
+  E --> F["Queryable cost metric: sum:aws.cost.amortized{...}"]
+  F --> G[Cost alert monitor: formula + anomaly + threshold]
+  G --> H[Same alert routing as any other monitor]
+  D --> G`
+
+<Callout title="The one-line takeaway">
+Custom metric cost comes from **tag cardinality**, log cost comes from **indexed volume and retention** — neither is about raw ingestion alone — and **Cloud Cost Management** ingests your cloud billing data as a queryable metric source so a `cost alert` monitor can apply the exact same threshold-and-notification mechanics to your cloud bill.
+</Callout>
+
+export const quizCostGovernance = [
+  {
+    q: 'What is the primary driver of custom metric cost, as covered in the Infrastructure & Metrics module?',
+    options: [
+      'The raw number of data points ingested per second',
+      'Tag cardinality: the number of distinct indexed tag-value combinations',
+      'The number of dashboards the metric appears on',
+      'The length of the metric name',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'What is the primary driver of log cost, as covered in the Log Management module?',
+    options: [
+      'The total number of raw log lines produced by an application',
+      'Indexed volume and retention, not raw ingestion volume alone',
+      'The number of Grok parsers used',
+      'How many services send logs',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'What does Cloud Cost Management let you do?',
+    options: [
+      'Automatically reduce your cloud provider bill',
+      'Ingest your cloud provider\'s billing data as a queryable Datadog metric source',
+      'Replace tag cardinality controls for custom metrics',
+      'Convert logs into cost data automatically',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'In the `cloud_cost_spike` monitor example, what triggers the alert?',
+    options: [
+      'A fixed dollar amount being exceeded in the raw AWS bill',
+      'An anomaly formula over the cloud cost query crossing the configured threshold',
+      'Any change at all to the EC2 cost, however small',
+      'A manual click in the Datadog UI',
+    ],
+    answer: 1,
+  },
+]
+
+<Quiz client:visible id="production-and-ecosystem/cost-governance-and-cloud-cost-management" questions={quizCostGovernance} />
+
+<ProgressTracker client:visible id="production-and-ecosystem/cost-governance-and-cloud-cost-management" />

@@ -1,0 +1,168 @@
+---
+title: 'Datadog as Code with Terraform'
+description: 'Managing Datadog monitors, dashboards, and SLOs as reviewable, reusable Terraform code instead of clicking them together by hand in the UI.'
+sidebar:
+  order: 1
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The idea in one sentence
+
+The official Terraform Datadog provider lets you define monitors, dashboards, and SLOs as versioned, reviewable code, instead of clicking them together by hand in the UI, one environment at a time.
+
+## Why bother managing Datadog as code
+
+Clicking a monitor together in the UI is fast the first time. The trouble shows up the second time: you need the same monitor in staging, the same dashboard in a new region, or you need to know exactly what changed to a threshold last month and why. UI-built configuration has no diff, no review step, and no single source of truth — two people can quietly disagree about what a monitor's threshold "should" be, and nothing catches it.
+
+Managing monitors, dashboards, and SLOs through the Terraform Datadog provider turns all of that into a code change: it lives in a repository, it gets reviewed in a pull request like any other change to production, and the same module can be instantiated for `prod`, `staging`, and every new service that comes along by changing a variable instead of re-clicking a wizard.
+
+## A real `datadog_monitor` resource
+
+Here is a metric alert monitor expressed as Terraform:
+
+```terraform
+resource "datadog_monitor" "high_cpu" {
+  name    = "High CPU on checkout-service"
+  type    = "metric alert"
+  message = "CPU is high on checkout-service. Notify: @slack-sre-alerts"
+
+  query = "avg(last_5m):avg:system.cpu.user{service:checkout-service} by {host} > 85"
+
+  monitor_thresholds {
+    warning  = 70
+    critical = 85
+  }
+
+  tags = ["service:checkout-service", "team:checkout"]
+}
+```
+
+- **`type`** — `metric alert` is one of several monitor types (others include `log alert`, `apm alert`, and the `cost alert` type covered in the next lesson).
+- **`message`** — the notification body. The `@slack-sre-alerts` handle is a Datadog notification target, resolved the same way it would be if you typed it into the UI's message box.
+- **`query`** — the actual alerting condition, evaluated as `avg(last_5m):avg:system.cpu.user{service:checkout-service} by {host} > 85`.
+- **`monitor_thresholds`** — `warning` and `critical` map directly onto the threshold sliders you'd otherwise drag in the UI.
+- **`tags`** — ordinary Datadog tags on the monitor object itself, useful for filtering the Manage Monitors page and for routing via Service Catalog ownership.
+
+**The important caveat:** the `query` string in a `datadog_monitor` resource is not the same syntax you'd type into the Datadog UI's monitor query builder. The UI builder is a guided widget that assembles a query for you; the Terraform `query` field is the raw **API query syntax**, and it has to be written by hand, correctly, the first time. By default, `terraform plan` sends that query to Datadog's API for validation, so a malformed query fails at plan time rather than silently creating a broken monitor. If you genuinely need to skip that check — for example, referencing a metric that doesn't exist yet in this environment — you can set `validate = false` on the resource, but that trades away your safety net, so it should be the exception, not the default.
+
+## Dashboards as code: `ordered` vs `free` layout
+
+The dashboard lesson from the Infrastructure & Metrics module covered named queries, formulas, and template variables from the UI's point of view. The same widget model shows up in Terraform via `datadog_dashboard_v2`, and the one extra decision you make in code is the `layout_type`.
+
+With `layout_type = "ordered"`, widgets simply stack top to bottom in the order you declare them — the simplest option, and a good default:
+
+```terraform
+resource "datadog_dashboard_v2" "checkout_overview" {
+  title       = "Checkout Service Overview"
+  layout_type = "ordered"
+
+  widget {
+    timeseries_definition {
+      request {
+        query {
+          name        = "query1"
+          data_source = "metrics"
+          query       = "avg:system.cpu.user{service:checkout-service} by {host}"
+        }
+        display_type = "line"
+      }
+    }
+  }
+}
+```
+
+With `layout_type = "free"`, every widget needs its own `widget_layout` block, giving you exact pixel-grid placement with `x`, `y`, `width`, and `height`:
+
+```terraform
+resource "datadog_dashboard_v2" "checkout_overview_free" {
+  title       = "Checkout Service Overview (free layout)"
+  layout_type = "free"
+
+  widget {
+    timeseries_definition {
+      request {
+        query {
+          name        = "query1"
+          data_source = "metrics"
+          query       = "avg:system.cpu.user{service:checkout-service} by {host}"
+        }
+        display_type = "line"
+      }
+    }
+    widget_layout {
+      x      = 0
+      y      = 0
+      width  = 4
+      height = 2
+    }
+  }
+}
+```
+
+`ordered` is the right default for most operational dashboards — you rarely need to fight pixel positions for a dashboard that mostly gets scrolled top to bottom. `free` earns its keep for TV-wall dashboards or intentionally designed layouts where widgets need to sit at specific coordinates relative to each other.
+
+<Mermaid title="From HCL to live Datadog resources" code={terraformDiagram} />
+
+export const terraformDiagram = `flowchart LR
+  A[Write datadog_monitor / datadog_dashboard_v2 in HCL] --> B[terraform plan]
+  B --> C{Query validation}
+  C -->|valid, or validate = false| D[Pull request review]
+  C -->|invalid| E[Plan fails: fix query]
+  D --> F[terraform apply]
+  F --> G[Monitor / Dashboard / SLO created in Datadog]
+  G --> H[Reused across prod, staging, new services via variables]`
+
+<Callout title="The one-line takeaway">
+The Terraform Datadog provider turns monitors, dashboards, and SLOs into versioned, reviewable code — but remember the `query` field in `datadog_monitor` uses the API query syntax (not the UI query builder's), `terraform plan` validates it by default, and a `datadog_dashboard_v2` needs explicit `widget_layout` blocks only when `layout_type = "free"`.
+</Callout>
+
+export const quizTerraform = [
+  {
+    q: 'What is the main benefit of managing Datadog monitors and dashboards via Terraform instead of the UI?',
+    options: [
+      'It is the only way to set a monitor threshold',
+      'Configuration becomes versioned code that can be reviewed and reused across environments',
+      'It removes the need for any notification targets',
+      'It automatically deletes monitors that are no longer needed',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'How does the `query` syntax in a `datadog_monitor` resource compare to the Datadog UI\'s monitor query builder?',
+    options: [
+      'They are identical, so anything typed in the UI can be pasted directly into Terraform',
+      'The Terraform `query` field uses the API query syntax and is not the same as the UI builder',
+      'Terraform monitors do not support queries at all',
+      'The UI query builder is generated from the Terraform state file',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'By default, what does `terraform plan` do with the `query` field of a `datadog_monitor`?',
+    options: [
+      'It ignores the query entirely until apply time',
+      'It sends the query to Datadog\'s API for validation, unless `validate = false` is set',
+      'It automatically rewrites invalid queries to the nearest valid one',
+      'It deletes the monitor if the query looks suspicious',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'In a `datadog_dashboard_v2` resource, when do you need an explicit `widget_layout` block with x/y/width/height for each widget?',
+    options: [
+      'Always, regardless of layout_type',
+      'Only when `layout_type = "ordered"`',
+      'Only when `layout_type = "free"`',
+      'Never — widget position cannot be controlled in Terraform',
+    ],
+    answer: 2,
+  },
+]
+
+<Quiz client:visible id="production-and-ecosystem/datadog-as-code-with-terraform" questions={quizTerraform} />
+
+<ProgressTracker client:visible id="production-and-ecosystem/datadog-as-code-with-terraform" />

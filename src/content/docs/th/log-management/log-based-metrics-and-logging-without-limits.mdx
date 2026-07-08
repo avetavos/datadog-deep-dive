@@ -1,0 +1,112 @@
+---
+title: 'Log-Based Metrics and Logging without Limits'
+description: 'Logging without Limits แยก log ingestion ออกจาก log indexing ยังไง — log-based metric จาก ingest stream เต็ม, Log Archive และ Rehydration'
+sidebar:
+  order: 3
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ไอเดียหลักในหนึ่งประโยค
+
+**Logging without Limits** คือชื่อที่ Datadog ใช้เรียกการแยก log *ingestion* ออกจาก log *indexing* และผลลัพธ์ที่สำคัญที่สุดคือคุณ generate log-based metric หรือส่ง log เข้า Archive ได้จาก ingest stream ทั้งหมด — แม้แต่ log ที่ Exclusion Filter drop ทิ้งจากทุก index ก็ตาม
+
+## Log-based metric: วัด log ที่คุณไม่ได้ index
+
+**log-based metric** ถูกคำนวณจาก ingest stream เต็ม ๆ — จุดเดียวกับที่ Exclusion Filter ในบทที่แล้วทำงานอยู่ — ไม่ใช่จากสิ่งที่ index ไปแล้ว นี่คือประเด็นสำคัญทั้งหมด log-based metric ยังทำงานต่อได้แม้กับ log ที่ไม่เคยเข้า index ไหนเลย
+
+log-based metric มีสองรูปแบบที่ต้องรู้:
+
+- metric แบบ **COUNT** นับว่ามี log กี่ตัวที่ match filter query เช่น `@status:error`
+- metric แบบ **DISTRIBUTION** aggregate attribute เชิงตัวเลขของ log เช่น `@duration` ให้ percentile กับ average เหมือน distribution metric ทั่วไป
+
+```json
+{
+  "data": {
+    "id": "logs.page.load.count",
+    "attributes": {
+      "compute": { "aggregation_type": "distribution", "path": "@duration" },
+      "filter": { "query": "service:web* AND @http.status_code:[200 TO 299]" },
+      "group_by": [ { "path": "@http.status_code", "tag_name": "status_code" } ]
+    }
+  }
+}
+```
+
+ตัวอย่างนี้นิยาม distribution metric บน attribute `@duration` scope ไปที่ request ที่สำเร็จของ service `web*` แล้ว group ตาม status code log-based metric ถูกคำนวณที่ **10-second granularity** และเก็บไว้ **15 เดือน** — นานกว่า `retention_days` ของ index ส่วนใหญ่มาก และราคาถูกกว่ามาก เพราะ metric เป็น aggregate เล็ก ๆ ไม่ใช่ log body เต็ม ๆ
+
+ผลตอบแทนในทางปฏิบัติคือ คุณตั้ง Exclusion Filter ของ index ให้ drop log `level:debug` ทิ้งทั้งหมดได้ (ประหยัด cost การ index) แล้วยังเก็บ log-based metric แบบ COUNT ของจำนวน debug log ต่อ service ต่อนาทีไว้ได้กว่าปี คุณเสียความสามารถอ่าน log line แต่ละบรรทัดหลังจากมัน age out หรือถูก exclude ไป แต่ไม่เคยเสีย trend หรือ anomaly signal ไปเลย
+
+## Log Archive: stream เต็มในราคาถูก ระยะยาว
+
+**Log Archive** ส่ง log stream ที่แทบจะเต็มและไม่ถูก exclude ไปยัง storage ที่คุณเป็นเจ้าของเอง — S3, GCS หรือ Azure Blob — ไม่ว่า Exclusion Filter ของ index ไหนจะทำอะไรอยู่ก็ตาม การ archive เกิดขึ้นเป็นอิสระจากการตัดสินใจเรื่อง indexing ซึ่งเป็นสิ่งที่ทำให้มันเหมาะกับ compliance และ retention ระยะยาว log ตัวหนึ่งถูก exclude จากทุก index ได้ (ถูก ไม่ต้องจ่ายค่า search เต็มราคา) และยังไปลง archive ได้ (ถูก, ระยะยาว, ค้นหาไม่ได้ถ้าไม่ทำขั้นตอนเพิ่ม)
+
+archive ค้นหาใน Logs Explorer ตรง ๆ ไม่ได้ มันคือ cold storage ใน cloud account ของคุณเอง คิดราคาตามอัตราของ cloud storage ของคุณเอง ซึ่งเป็นเหตุผลตรง ๆ ที่ทำให้มันคุ้มค่าพอจะเก็บแทบทุกอย่างไว้เป็นปี ๆ ในจุดที่ full index retention ทำไม่ได้
+
+## Rehydration: re-index ชิ้นส่วนของอดีตชั่วคราว
+
+พอคุณต้องสืบสวนอะไรบางอย่างที่อยู่ใน archive จริง ๆ — เช่น `level:debug` ที่ระเบิดขึ้นรอบ ๆ incident เมื่อสี่เดือนก่อน — คุณใช้ **Rehydration** คือเอาชิ้นส่วนของ archive ที่ scope ด้วยช่วงเวลามา re-index ใหม่ ปกติจะเข้า temporary index เพื่อให้มันค้นหาได้อีกครั้งใน Logs Explorer นานเท่าที่คุณต้องการ Rehydration ถูกออกแบบให้ scope ด้วยช่วงเวลา (และมักด้วย query ด้วย) แทนที่จะ replay archive ทั้งก้อน เพราะการ re-index คือสิ่งที่เสียเงิน — คุณจ่ายเพื่อทำให้ชิ้นส่วนนั้นค้นหาได้อีกครั้ง ไม่ใช่จ่ายเพื่อเก็บมันไว้ เพราะมันนอนอยู่ใน archive อย่างปลอดภัยอยู่แล้ว
+
+<Mermaid title="Ingestion vs. indexing: where each path leads" code={loggingWithoutLimitsDiagramTh} />
+
+export const loggingWithoutLimitsDiagramTh = `flowchart LR
+  A[Full ingest stream] --> B[Log-based metric\\nCOUNT or DISTRIBUTION\\n10s granularity, 15 months]
+  A --> C[Log Archive\\nS3 / GCS / Azure Blob]
+  A --> D{Index Exclusion Filter}
+  D -->|kept| E[Indexed: searchable,\\nfull price, retention_days]
+  D -->|excluded| F[Not in this index]
+  C -.->|Rehydration: time-scoped| G[Temporary index\\nsearchable again]`
+
+<Callout title="The one-line takeaway">
+**Logging without Limits** หมายถึง ingestion กับ indexing ถูกแยกออกจากกัน — **log-based metric** (COUNT หรือ DISTRIBUTION, 10-second granularity, 15 เดือน) และ **Log Archive** (cloud storage ราคาถูกของคุณเอง) ทั้งคู่ดึงข้อมูลจาก ingest stream เต็ม ๆ ไม่ว่า Exclusion Filter ของ index จะเป็นยังไง และ **Rehydration** ให้คุณ re-index ชิ้นส่วนของ archive ที่ scope ด้วยเวลาชั่วคราว เมื่อต้องการค้นหามันอีกครั้ง
+</Callout>
+
+export const quizLoggingWithoutLimitsTh = [
+  {
+    q: 'log-based metric ถูกคำนวณจาก stream ไหน',
+    options: [
+      'log ที่เข้า index แล้วเท่านั้น',
+      'ingest stream เต็ม ๆ ก่อนที่ Exclusion Filter ของ index จะทำงาน',
+      'log ที่อยู่ใน Log Archive เท่านั้น',
+      'log แค่ 24 ชั่วโมงล่าสุดไม่ว่า index จะตั้งค่ายังไง',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'log-based metric ถูกเก็บที่ granularity และ retention เท่าไร',
+    options: [
+      '1-minute granularity, 30 วัน',
+      '10-second granularity, 15 เดือน',
+      '1-hour granularity, 7 วัน',
+      'granularity และ retention เท่ากับ index ต้นทาง',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'Log Archive รับ log แบบไหน',
+    options: [
+      'log ที่รอดจาก Exclusion Filter ของทุก index เท่านั้น',
+      'แทบจะเป็น log stream เต็มที่ไม่ถูก exclude ไม่ว่า Exclusion Filter ของ index จะเป็นยังไง',
+      'log ที่ match filter ของ log-based metric เท่านั้น',
+      'log ที่ถูก drop โดย exclude_at_match ฝั่ง Agent เท่านั้น',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'Rehydration คืออะไร',
+    options: [
+      'restore archive ทั้งก้อนกลับเข้า main index อย่างถาวร',
+      'วิธีเพิ่ม daily_limit ของ index',
+      're-index ชิ้นส่วนของ archive ที่ scope ด้วยช่วงเวลาชั่วคราว ให้ค้นหาได้อีกครั้ง',
+      'processor ใน Processing Pipeline ที่ re-parse log เก่า',
+    ],
+    answer: 2,
+  },
+]
+
+<Quiz client:visible id="log-management/log-based-metrics-and-logging-without-limits" questions={quizLoggingWithoutLimitsTh} />
+
+<ProgressTracker client:visible id="log-management/log-based-metrics-and-logging-without-limits" />

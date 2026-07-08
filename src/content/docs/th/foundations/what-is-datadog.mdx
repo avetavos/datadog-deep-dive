@@ -1,0 +1,126 @@
+---
+title: 'Datadog คืออะไร'
+description: 'Datadog ในฐานะ unified observability SaaS — Agent กับ backend, product ตระกูลที่สร้างอยู่บน tagged telemetry, site/region และความต่างระหว่าง API key กับ Application key'
+sidebar:
+  order: 2
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ไอเดียหลักในหนึ่งประโยค
+
+Datadog คือ SaaS backend เดียวที่ **Agent** ตัวเบา ๆ (บวกโค้ดที่ instrument แล้ว) ป้อน tagged telemetry เข้าไป และทุก product ที่เห็นใน UI — Infrastructure Monitoring, Log Management, APM, Monitors/SLOs, Software Catalog — จริง ๆ แล้วคือมุมมองที่ต่างกันของ data stream เดียวกันนั้นเอง
+
+## หนึ่งแพลตฟอร์ม หลาย product
+
+ทีมส่วนใหญ่เจอ Datadog ทีละ product — บางคนติดตั้ง Agent เพื่อเก็บ host metric บางคนเปิด APM บางคนเริ่มส่ง log เข้าไป ทำให้เข้าใจง่าย ๆ ว่านี่คือเครื่องมือแยกกันที่บังเอิญใช้ login เดียวกัน แต่จริง ๆ ไม่ใช่ ข้างใต้มีสิ่งเดียวที่ส่งเข้ามาที่ backend ของ Datadog นั่นคือ **telemetry ที่มี tag ติดอยู่** metric, log, trace และ process snapshot คือ telemetry รูปแบบต่างกัน แต่ทั้งหมดใช้ tagging model เดียวกัน, organization เดียวกัน และ billing account เดียวกัน
+
+backend เดียวนั้นคือสิ่งที่ขับเคลื่อน
+
+- **Infrastructure Monitoring** — metric ของ host กับ container, Host Map, dashboard ระดับ resource
+- **Log Management** — การเก็บ, pipeline ประมวลผล, การ index และการค้นหา log event
+- **APM (Application Performance Monitoring)** — distributed trace, service map, มุมมอง latency กับ error rate
+- **Monitors & SLOs** — กฎ alert กับการติดตาม error budget ที่ประเมินจากข้อมูลด้านบนทั้งหมด
+- **Software Catalog** — ไดเรกทอรีของ service ที่ผูก ownership metadata กลับไปหา metric, log และ trace เดียวกัน
+
+ไม่มีตัวไหนเป็นเครื่องมือแยกที่มี storage silo ของตัวเอง ทั้งหมดคือ view เหตุผลที่เรื่องนี้สำคัญในทางปฏิบัติ — เมื่อคุณปรับ tagging ให้ดีขึ้นครั้งเดียว (บทที่ 3 ของ module นี้ลงลึกเรื่องนี้) ทุก view เหล่านี้ดีขึ้นพร้อมกัน คุณไม่ได้ตั้งค่าห้า product แยกกัน คุณตั้งค่า data model เดียว
+
+## Agent กับ backend
+
+**Agent** คือซอฟต์แวร์ชิ้นเล็ก ๆ ที่คุณรันอยู่ข้าง infrastructure ของคุณ — บน host, เป็น container หรือเป็น Kubernetes DaemonSet หน้าที่ของมันแคบมาก คือเก็บข้อมูลในเครื่องแล้วส่งเข้า Datadog backend ผ่าน HTTPS มันไม่ได้ render dashboard, ไม่ได้ประเมิน monitor และไม่ได้เก็บ history — ทั้งหมดนั้นอยู่ใน Datadog SaaS backend ซึ่งเป็นเหตุผลที่ Agent เองยังคงเบาและทิ้งแล้วสร้างใหม่ได้ง่าย
+
+<Mermaid title="Where telemetry comes from" code={platformDiagramTh} />
+
+export const platformDiagramTh = `flowchart LR
+    Host["Host / Container"] -->|metrics, checks| Agent
+    App["Instrumented app"] -->|traces| Agent
+    Files["Log files"] -->|logs| Agent
+    Agent -->|HTTPS intake| Backend["Datadog Backend (one site)"]
+    Backend --> Infra["Infrastructure Monitoring"]
+    Backend --> Logs["Log Management"]
+    Backend --> APM["APM"]
+    Backend --> Mon["Monitors / SLOs"]
+    Backend --> Cat["Software Catalog"]
+`
+
+## Site กับ region
+
+organization ของ Datadog ไม่ได้ลอยอยู่ทั่วอินเทอร์เน็ต — มันอยู่ใน **site** เดียว (คำที่ Datadog ใช้เรียก region) เช่น `US1`, `US3`, `US5`, `EU1` หรือ `AP1` site ที่คุณอยู่คือตัวกำหนด hostname ที่ Agent กับ API call ของคุณต้องใช้ — เช่น org บน `US1` คุยกับ `api.datadoghq.com` ในขณะที่ org บน `EU1` คุยกับ `api.datadoghq.eu` ถ้าตั้งค่า Agent ให้ชี้ไปที่ intake ของ site ผิด มันจะ authenticate กับ backend คนละตัวไปเลย — นี่คือความผิดพลาดวันแรกที่พบบ่อยที่สุด ควรเช็ค site ของตัวเองให้ชัดเจนแทนที่จะเดาเอา
+
+```yaml
+# datadog.yaml (Agent main config) — site must match your org
+api_key: "<DD_API_KEY>"
+site: "datadoghq.eu"   # e.g. datadoghq.com (US1), datadoghq.eu (EU1), us3.datadoghq.com, ap1.datadoghq.com
+```
+
+## API key เทียบกับ Application key
+
+credential สองแบบนี้ถูกสับสนบ่อยมากเพราะทั้งคู่ก็แค่ string ที่เอาไปแปะที่ไหนสักที่ แต่มันอนุญาตให้ทำคนละอย่างกันโดยสิ้นเชิง
+
+- **API key** อนุญาตให้ *ส่งข้อมูลเข้ามา* — คือสิ่งที่ Agent ใส่ใน config เพื่อส่ง metric, log และ trace เข้า Datadog มัน scope อยู่ที่ organization ไม่ได้ผูกกับคนใดคนหนึ่ง
+- **Application key** อนุญาตให้ *ทำตัวเป็น user* — มันผูกกับ permission ของ user คนหนึ่งโดยเฉพาะ และใช้เรียก read/management API ของ Datadog (query metric, สร้าง dashboard, จัดการ monitor ผ่าน API หรือ Terraform) ถ้า user คนนั้นถูก deactivate หรือ permission ถูกถอด สิ่งที่ใช้ Application key ของเขาก็เสีย access นั้นไปด้วย
+
+กฎง่าย ๆ — ถ้ากำลังตั้งค่าอะไรบางอย่างให้ *ส่ง* ข้อมูลเข้า Datadog ต้องใช้ API key ถ้ากำลังเขียน script หรือ Terraform provider ที่ต้อง *อ่านหรือจัดการ* resource ของ Datadog แทน user คนหนึ่ง ต้องใช้ Application key คู่กับ API key
+
+```bash
+# Typical pairing for a script that talks to Datadog's API
+export DD_API_KEY="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+export DD_APP_KEY="yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+curl -X GET "https://api.datadoghq.com/api/v1/validate" \
+  -H "DD-API-KEY: ${DD_API_KEY}" \
+  -H "DD-APPLICATION-KEY: ${DD_APP_KEY}"
+```
+
+<Callout title="The one-line takeaway">
+Datadog คือ **backend เดียว, tagging model เดียว, product view หลายตัว** — Agent (หรือโค้ดที่ instrument แล้ว) ส่ง tagged telemetry เข้า site เดียวที่ org ของคุณอยู่ **API key** คือตัวที่ให้ telemetry นั้นเข้ามาได้ และ **Application key** คือตัวที่ให้ script หรือ tool ของ user ที่ authenticate แล้วอ่านหรือจัดการ resource ของ Datadog ได้ทีหลัง
+</Callout>
+
+export const quizWhatIsDatadogTh = [
+  {
+    q: 'ทำไม Infrastructure Monitoring, APM และ Log Management ถึงดีขึ้นพร้อมกันเมื่อแก้ tagging ครั้งเดียว',
+    options: [
+      'เพราะเป็น product แยกกันที่มี storage แยก ต้องแก้ tagging ทีละตัว',
+      'เพราะเป็น view ต่างกันของ tagged telemetry stream เดียวกันบน backend เดียว การปรับ tag ให้ดีขึ้นจึงช่วยทุก view พร้อมกัน',
+      'เพราะ tagging มีผลกับ Infrastructure Monitoring เท่านั้น',
+      'เพราะ tagging ถูกใช้ต่อ dashboard ไม่ใช่ต่อ product'
+    ],
+    answer: 1
+  },
+  {
+    q: 'อะไรเป็นตัวกำหนด hostname ของ API/intake ที่ Agent ต้องส่งข้อมูลไปหา',
+    options: [
+      'เวอร์ชันของ Agent',
+      'ภาษาโปรแกรมที่ใช้ instrument แอป',
+      'Datadog site (region) ที่ organization ของคุณอยู่',
+      'ประเภทของ telemetry (metric เทียบกับ log เทียบกับ trace)'
+    ],
+    answer: 2
+  },
+  {
+    q: 'API key อนุญาตให้ทำอะไร',
+    options: [
+      'ทำตัวเป็น user ที่ authenticate แล้วเพื่อจัดการ dashboard',
+      'ส่ง telemetry data (metric, log, trace) เข้า organization ของคุณ',
+      'ลบ Datadog organization',
+      'เปลี่ยน site ที่ org ของคุณ host อยู่'
+    ],
+    answer: 1
+  },
+  {
+    q: 'คุณกำลังเขียน Terraform provider config ที่ต้องสร้างและจัดการ Datadog monitor ต้องใช้ credential แบบไหน',
+    options: [
+      'API key อย่างเดียว',
+      'Application key อย่างเดียว',
+      'ทั้ง API key และ Application key',
+      'ไม่ต้องใช้ทั้งคู่ — Terraform ใช้ config local ของ Agent'
+    ],
+    answer: 2
+  }
+]
+
+<Quiz client:visible id="foundations/what-is-datadog" questions={quizWhatIsDatadogTh} />
+
+<ProgressTracker client:visible id="foundations/what-is-datadog" />

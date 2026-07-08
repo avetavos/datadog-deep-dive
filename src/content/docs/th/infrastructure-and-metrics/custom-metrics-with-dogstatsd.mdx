@@ -1,0 +1,120 @@
+---
+title: 'Custom Metrics ด้วย DogStatsD'
+description: 'DogStatsD คือ UDP protocol ที่มากับ Agent สำหรับส่ง custom application metric รูปแบบ datagram, metric type ต่าง ๆ และทำไม HISTOGRAM กับ DISTRIBUTION aggregate ต่างกัน'
+sidebar:
+  order: 2
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ใจความสำคัญในหนึ่งประโยค
+
+DogStatsD คือ UDP daemon เล็ก ๆ ที่ฝังอยู่ใน Agent ให้ application code ส่ง **custom metric** ได้ด้วยการยิง datagram แบบ lightweight โดยไม่ต้องเขียน check เลย
+
+## ทำไมต้องมี DogStatsD
+
+check (จากบทก่อนหน้า) เหมาะกับ infrastructure และ integration ที่รู้จักกันอยู่แล้ว แต่ไม่ช่วยเวลาต้องการวัดอะไรที่เฉพาะเจาะจงกับ application code ของตัวเอง เช่น "checkout attempt เกิดกี่ครั้ง" "function นี้ใช้เวลาเท่าไร" "endpoint นี้มี unique user กี่คน" การเขียน Agent check เต็มรูปแบบสำหรับเรื่องพวกนี้จะเกินความจำเป็น DogStatsD แก้ปัญหานี้ด้วยการฟังบน local UDP port (default `8125`) ที่ process ไหนบน host ก็ยิง datagram เล็ก ๆ เข้ามาได้ Agent รับ datagram เหล่านั้น aggregate แล้วส่งต่อขึ้นไป application ไม่ต้องคุยกับ Datadog backend โดยตรงเลย
+
+## รูปแบบ datagram
+
+การส่ง DogStatsD คือ text หนึ่งบรรทัดผ่าน UDP
+
+```text
+<METRIC_NAME>:<VALUE>|<TYPE>|@<SAMPLE_RATE>|#<TAG_KEY_1>:<TAG_VALUE_1>,<TAG_2>
+```
+
+ตัวอย่างเช่นส่ง counter สำหรับ checkout attempt พร้อม tag environment กับ payment provider
+
+```text
+checkout.attempts:1|c|@1|#env:prod,provider:stripe
+```
+
+- `checkout.attempts` — ชื่อ metric
+- `1` — ค่าที่ส่ง
+- `c` — type (ในที่นี้คือ count)
+- `@1` — sample rate (ที่นี่ 1 หมายถึง "ไม่ sample" คือส่งทุก event)
+- `#env:prod,provider:stripe` — tag คั่นด้วย comma
+
+## Metric type
+
+DogStatsD รองรับ type code ชุดคงที่
+
+- **COUNT** (`c`) — เพิ่ม counter ตามค่าที่ให้ ใช้กับ "X เกิดขึ้นกี่ครั้ง"
+- **GAUGE** (`g`) — set metric เป็นค่าที่แน่นอน ณ ขณะนั้น ใช้กับ "ค่าปัจจุบันของ X คือเท่าไร"
+- **HISTOGRAM** (`h`) — บันทึก distribution ของค่า โดย **aggregate แบบ client-side ต่อ host**
+- **DISTRIBUTION** (`d`) — บันทึก distribution ของค่า โดย **aggregate แบบ global ที่ server-side**
+- **SET** (`s`) — นับจำนวนค่าที่ไม่ซ้ำกันที่ส่งเข้ามาสำหรับ metric นั้น เช่น unique user ID
+- **TIMER** (`ms`) — alias ของ HISTOGRAM ตามธรรมเนียมใช้กับการวัดเวลาเป็น millisecond ข้างในทำงานเหมือน `h` ทุกอย่าง
+
+## HISTOGRAM vs DISTRIBUTION จุดสำคัญที่ต้องระวัง
+
+นี่คือความต่างจุดเดียวที่คนสับสนกันบ่อยที่สุด การส่ง `HISTOGRAM` หนึ่งครั้งไม่ได้สร้าง metric แค่ตัวเดียวใน Datadog — **Agent** จะ aggregate ค่าที่เห็นระหว่าง flush interval **บน host นั้น** แล้ว derive metric ออกมาหลายตัวคือ `.avg`, `.max`, `.median`, `.95percentile`, และ `.count` ในจำนวนนี้ `.count` ถูกเก็บเป็น type **RATE** ส่วนที่เหลือเก็บเป็น **GAUGE** เพราะ aggregation นี้เกิดที่ client-side ต่อ host percentile อย่าง `.95percentile` จึงสะท้อนแค่ค่าที่ Agent ตัวนั้นเห็นเท่านั้น ถ้ามี 50 host ส่ง histogram metric ชื่อเดียวกัน จะได้ derived metric 50 ชุดที่เป็นอิสระต่อกัน และไม่มีทางคำนวณ p95 ระดับ global ที่ถูกต้องย้อนหลังจากทั้งหมดนั้นได้
+
+`DISTRIBUTION` แก้ปัญหานี้ตรง ๆ แทนที่จะ pre-aggregate บน Agent ค่าดิบจะถูกส่งขึ้นไปที่ Datadog backend แล้ว aggregate แบบ **global ครอบคลุมทุก host และ container ที่ส่ง metric ชื่อนั้น** นั่นแปลว่า distribution metric ให้ p99 ระดับ global ที่แม่นยำครอบคลุมทั้ง fleet ได้ ซึ่ง histogram ทำแบบนั้นไม่ได้เลยไม่ว่าจะพยายามคำนวณย้อนหลังยังไง
+
+หลักจำง่าย ๆ ใช้ **HISTOGRAM** เมื่อต้องการสถิติระดับ per-host จริง ๆ (หรือเมื่อ cost การ ingest ของ DISTRIBUTION ที่สูงกว่ายังไม่คุ้ม) และใช้ **DISTRIBUTION** เมื่อต้องการ percentile ที่แม่นยำครอบคลุมทั้ง fleet ตัวอย่าง canonical คือ p99 latency ระดับ global ของ service ที่รันอยู่บนหลาย host หรือ container
+
+## ตัวอย่างจาก client library
+
+ใช้ Python package `datadog` ที่ wrap รูปแบบ datagram ด้านบนไว้
+
+```python
+from datadog import statsd
+
+# COUNT: increment by 1, tagged
+statsd.increment('checkout.attempts', tags=['env:prod', 'provider:stripe'])
+
+# GAUGE: set the current value
+statsd.gauge('worker.queue.depth', 128, tags=['env:prod'])
+
+# DISTRIBUTION: submit one latency sample, aggregated globally server-side
+statsd.distribution('api.request.duration', 0.083, tags=['env:prod', 'route:/checkout'])
+```
+
+<Mermaid title="DogStatsD path vs. HISTOGRAM/DISTRIBUTION aggregation" code={dogstatsdDiagramTh} />
+
+export const dogstatsdDiagramTh = `flowchart LR
+  A[App process] -->|UDP datagram| B[DogStatsD in Agent]
+  B -->|HISTOGRAM: aggregate per host| C[.avg/.max/.median/.95percentile as GAUGE, .count as RATE]
+  B -->|DISTRIBUTION: send raw values| D[Datadog backend]
+  D -->|aggregate globally| E[Accurate percentiles across all hosts]
+  C --> F[Datadog backend]`
+
+<Callout title="The one-line takeaway">
+DogStatsD ให้ process ไหนก็ได้ส่ง custom metric เป็น UDP datagram เล็ก ๆ โดยไม่ต้องเขียน check code แต่ต้องเลือก type ให้ถูก **HISTOGRAM aggregate แบบ client-side ต่อ host** percentile จึงแม่นยำแค่ระดับ host เดียว ส่วน **DISTRIBUTION aggregate แบบ global ที่ server-side** ให้ percentile ที่แม่นยำครอบคลุมทั้ง fleet
+</Callout>
+
+export const quizDogstatsdTh = [
+  {
+    q: 'ใน datagram `checkout.attempts:1|c|@1|#env:prod`, `@1` หมายถึงอะไร',
+    options: ['metric version', 'sample rate', 'หมายเลข port ของ Agent', 'จำนวน tag'],
+    answer: 1,
+  },
+  {
+    q: 'metric type ไหนเป็น alias ของ HISTOGRAM',
+    options: ['SET', 'GAUGE', 'TIMER', 'COUNT'],
+    answer: 2,
+  },
+  {
+    q: 'ทำไม HISTOGRAM metric ถึงให้ p95 ระดับ global ที่แม่นยำครอบคลุม 50 host ไม่ได้',
+    options: [
+      'HISTOGRAM ไม่รองรับ percentile เลย',
+      'percentile ถูกคำนวณแบบ client-side ต่อ host แต่ละ host จึงรู้แค่ค่าของตัวเอง',
+      'ค่า HISTOGRAM ถูกลบทิ้งหลัง 24 ชั่วโมง',
+      'HISTOGRAM ใช้ได้กับ input ที่เป็น GAUGE type เท่านั้น',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'derived sub-metric ตัวไหนจากการส่ง HISTOGRAM ที่ถูกเก็บเป็น RATE type แทนที่จะเป็น GAUGE',
+    options: ['.avg', '.max', '.count', '.median'],
+    answer: 2,
+  },
+]
+
+<Quiz client:visible id="infrastructure-and-metrics/custom-metrics-with-dogstatsd" questions={quizDogstatsdTh} />
+
+<ProgressTracker client:visible id="infrastructure-and-metrics/custom-metrics-with-dogstatsd" />

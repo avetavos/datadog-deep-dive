@@ -1,0 +1,120 @@
+---
+title: 'Continuous Profiler and Error Tracking'
+description: 'Two production-debugging tools built on top of tracing — always-on code-level profiling tied to spans, and automatic error deduplication into trackable issues.'
+sidebar:
+  order: 4
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The idea in one sentence
+
+Tracing tells you **where** something is slow or failing — which service, which span — while the **Continuous Profiler** and **Error Tracking** tell you **why**, down to the exact function burning CPU or the deduplicated root cause behind a pile of repeated stack traces.
+
+## Continuous Profiler: code-level visibility, always on
+
+The Continuous Profiler runs constantly, in production, at low overhead, capturing **CPU time, wall-time, and allocations** at the code level — individual functions and call stacks, not just service-level aggregates. Because it's always on rather than something you turn on to investigate one incident after the fact, the data is already there by the time you need it.
+
+The profiler ties its samples back to the specific service, endpoint, and even the individual trace they occurred in. That link is what makes it useful for debugging a slow request: instead of guessing which part of `checkout-web` is expensive, you jump from a slow trace directly into a flame graph of exactly which function was running, and for how long, during that request:
+
+```python
+# ddtrace's profiler starts alongside the tracer — no separate instrumentation needed
+from ddtrace.profiling import Profiler
+
+prof = Profiler()
+prof.start()
+```
+
+With both the tracer and profiler running, a slow span in a trace can point you straight at the function-level flame graph for that exact window of execution — tracing narrows down *which span*, the profiler narrows down *which line of code*.
+
+## Error Tracking: turning repeated stack traces into one issue
+
+Error Tracking takes error events surfaced from traces and logs and automatically **groups and deduplicates** similar errors into a single **issue**, instead of leaving you to manually notice that the same `NullPointerException` has fired 482 times across a week of traces. Each issue carries a lifecycle you manage explicitly — typically **new**, **triaged**, and **resolved** — so a recurring error becomes one thing your team tracks to closure rather than hundreds of individual, unrelated-looking events:
+
+```json
+{
+  "issue": {
+    "fingerprint": "NullPointerException@checkout.apply_discount",
+    "status": "new",
+    "occurrences": 482,
+    "first_seen": "2026-07-01T10:03:00Z",
+    "last_seen": "2026-07-08T09:12:00Z",
+    "example_trace_ids": ["6141ee2f9a4d4b2e8f3c1a90", "9af23cd1b8e7f4a6c2d5e901"]
+  }
+}
+```
+
+Notice the `example_trace_ids` field — Error Tracking keeps a link back to actual example traces for the issue, so you can jump from "this issue has fired 482 times" straight into one concrete occurrence to see the full request context around it.
+
+## From "where" to "why"
+
+Put the two together and they cover the gap tracing alone leaves open:
+
+- **Tracing** — which service and span is slow or failing.
+- **Continuous Profiler** — which function, at the code level, is consuming the CPU/wall-time/allocations during that slow span.
+- **Error Tracking** — which deduplicated issue a failing span actually belongs to, and where that issue sits in its new/triaged/resolved lifecycle.
+
+Neither tool replaces tracing — they both start from a trace or span and go one level deeper than "which service" can take you.
+
+<Mermaid title="From where to why" code={profilerErrorTrackingDiagramEn} />
+
+export const profilerErrorTrackingDiagramEn = `flowchart LR
+  Trace[Slow or failing trace] --> Where[Tracing: which service, which span]
+  Where --> Profiler[Continuous Profiler: which function, CPU/wall-time/allocations]
+  Where --> ErrorTracking[Error Tracking: deduplicated issue, new/triaged/resolved]
+  Profiler --> WhySlow[Why it is slow]
+  ErrorTracking --> WhyFailing[Why it is failing]`
+
+<Callout title="The one-line takeaway">
+Tracing narrows a problem down to **which service and span**; the always-on **Continuous Profiler** then narrows it down to **which function** burning CPU/wall-time/allocations, and **Error Tracking** automatically groups repeated failures into one **issue** with a new/triaged/resolved lifecycle — together they take you from *where* to *why*.
+</Callout>
+
+export const quizProfilerErrorTrackingEn = [
+  {
+    q: 'What does the Continuous Profiler add on top of what tracing already shows you?',
+    options: [
+      'A list of which hosts exist in your infrastructure',
+      'Code-level CPU/wall-time/allocation visibility tied back to the specific service, endpoint, and trace',
+      'A replacement for the Service Map',
+      'The sampling rate configured on your tracer',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'What does Error Tracking do with 482 occurrences of the same underlying error across many traces?',
+    options: [
+      'It creates 482 separate alerts',
+      'It ignores duplicates entirely',
+      'It automatically groups and deduplicates them into a single issue with a lifecycle you manage (e.g. new/triaged/resolved)',
+      'It deletes all but the most recent occurrence',
+    ],
+    answer: 2,
+  },
+  {
+    q: 'Why is the Continuous Profiler described as "always-on" rather than something you enable during an incident?',
+    options: [
+      'Because it only samples during deploys',
+      'Because it runs constantly at low overhead, so code-level data is already available by the time you need to investigate a slow request',
+      'Because it replaces the need for tracing entirely',
+      'Because it is only available in a paid add-on tier with no runtime cost consideration',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'In one sentence, how do tracing and these two tools divide responsibility?',
+    options: [
+      'Tracing tells you why, profiler/Error Tracking tell you where',
+      'Tracing tells you where (service/span), profiler and Error Tracking tell you why (code line / deduplicated root cause)',
+      'They all do exactly the same thing for redundancy',
+      'Tracing and Error Tracking are the same feature under two names',
+    ],
+    answer: 1,
+  },
+]
+
+<Quiz client:visible id="apm-and-distributed-tracing/continuous-profiler-and-error-tracking" questions={quizProfilerErrorTrackingEn} />
+
+<ProgressTracker client:visible id="apm-and-distributed-tracing/continuous-profiler-and-error-tracking" />

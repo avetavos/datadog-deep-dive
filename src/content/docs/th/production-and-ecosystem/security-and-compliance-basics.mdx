@@ -1,0 +1,103 @@
+---
+title: 'พื้นฐาน Security และ Compliance'
+description: 'มุมมอง conceptual ของ Cloud Security Management และ Sensitive Data Scanner แล้วลงตัวอย่าง access control ที่ทำถูกต้องจริง ๆ คือ granular RBAC permission สำหรับ Log Management'
+sidebar:
+  order: 3
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ไอเดียหลักในหนึ่งประโยค
+
+นอกจาก dashboard กับ alert แล้ว Datadog ยังครอบคลุม cloud security posture กับ runtime threat, sensitive data detection และ access control แบบละเอียด — ตัวหลังนี่แหละที่ปกป้อง cost กับ reliability decision ที่คอร์สนี้สอนไปก่อนหน้าโดยตรง
+
+## Cloud Security Management แบบ conceptual
+
+**Cloud Security Management** (CSM) ทำงานอยู่บน telemetry และ configuration ที่คุณส่งเข้า Datadog อยู่แล้วเป็นส่วนใหญ่ ครอบคลุมปัญหาสองอย่างที่เกี่ยวกันแต่แยกกัน
+
+- **Posture management** — เช็ค cloud account และ resource ของคุณต่อเนื่องหา misconfiguration เช่น S3 bucket ที่เปิดให้อ่านสาธารณะ, IAM policy ที่ permissive เกินไป หรือ security group ที่เปิดให้ทั้งโลกเข้าถึง เป็น finding เรื่องการ *config* ประเมินตาม rule built-in และ custom ไม่เกี่ยวว่ามีอะไรเกิดขึ้นจริงหรือยัง
+- **Runtime threat** — detection rule ที่รันกับ signal สด ๆ จาก host, container และ Kubernetes (process activity, file access, network connection) เพื่อจับสิ่งที่กำลังเกิดขึ้นจริง ๆ ตอนนี้ เช่น container ที่ spawn shell แบบไม่คาดคิด
+
+ประเด็นสำหรับคอร์สนี้ CSM ไม่ใช่ product แยกที่ต้องต่อพ่วง instrumentation ใหม่ — ส่วนใหญ่ reuse Agent และ cloud integration ที่คุณตั้งไว้แล้วจากโมดูล Foundations แค่ชี้ไปที่ rule engine คนละตัว
+
+## Sensitive Data Scanner แบบ conceptual
+
+**Sensitive Data Scanner** หา pattern ที่ match กับ sensitive data — เลขบัตรเครดิต, email address, API key หรือ regex/keyword pattern แบบ custom ที่คุณ define — อยู่ใน telemetry ที่ไหลผ่าน Datadog ส่วนใหญ่คือ log พอเจอ match มันจะ flag, redact หรือ hash ได้ ขึ้นกับว่า rule ตั้งไว้ยังไง โดยไม่ต้องไปแก้ว่า application จะ log อะไรจริง ๆ เรื่องนี้สำคัญกับ compliance regime อย่าง PCI หรือ GDPR — คุณได้ safety net สำหรับ sensitive data ที่หลุดเข้าไปใน log line อยู่ดีถึงทุกคนจะตั้งใจระวังแล้ว แทนที่จะพึ่ง discipline ที่ layer application อย่างเดียว
+
+## ตัวอย่างที่จับต้องได้: granular RBAC สำหรับ Log Management
+
+security posture กับ data scanning เป็นเรื่อง telemetry content ส่วน **RBAC (role-based access control)** เป็นเรื่องว่าใครทำอะไรได้บ้างใน Datadog เอง และ Log Management เป็นที่ที่เห็นความละเอียดของมันชัดที่สุด — เพราะอย่างที่โมดูล Log Management สอนไว้ การตัดสินใจว่าอะไรถูก index, exclude หรือ archive คือการตัดสินใจเรื่อง **cost** โดยตรง ไม่ใช่แค่เรื่อง cosmetic คุณไม่อยากให้ lever นี้เปิดให้ทุกคนที่แค่ต้องการ search log
+
+permission บางส่วนที่ Datadog เปิดให้เฉพาะเรื่อง log
+
+- **`logs_modify_indexes`** — สร้าง, แก้ หรือจัดลำดับ log index รวมถึง retention period กับ daily quota ของมัน permission นี้คุมว่าคุณจ่าย indexed log volume เท่าไหร่
+- **`logs_write_exclusion_filters`** — สร้างหรือแก้ exclusion filter คือ rule ที่ตัดสินว่า log ไหนไม่ถูก index เลย เป็นทั้ง cost lever และ data-visibility lever โดยตรง
+- **`logs_write_pipelines`** — สร้างหรือแก้ Processing Pipeline คือขั้นตอน parse กับ enrich จากโมดูล Log Management ทำผิดตรงนี้ไม่กระทบ cost แต่ทำให้ parsing พังสำหรับ log ทุกตัวที่ match filter ของ pipeline นั้นได้
+- **`logs_write_archives`** — ตั้งค่าว่า log จะถูก archive ไปที่ไหน (เช่น cold storage บน S3) แยกจากเรื่องว่าอะไรถูก index
+- **`logs_read_archives`** — rehydrate หรือ query จาก archive ที่มีอยู่แล้ว โดยไม่มีสิทธิ์ไปเปลี่ยนว่า archive จะไปไหนหรือ config ยังไง
+- **`logs_generate_metrics`** — สร้าง log-based metric แปลง log query ให้กลายเป็น custom metric โดยไม่ให้สิทธิ์ไปเปลี่ยนว่าอะไรถูก index
+- **`logs_write_facets`** — สร้างหรือแก้ facet ที่ใช้ search และ filter log ใน Log Explorer
+
+pattern ที่เห็นในทุกตัวนี้ Datadog แยก "query และอ่าน log ได้" ออกจาก "เปลี่ยนได้ว่าอะไรถูก index, exclude หรือ archive" application engineer ที่กำลัง investigate incident ต้อง search log ได้อย่างอิสระ แต่ไม่จำเป็นต้องมีสิทธิ์ไปเปลี่ยน log source production เสียงดัง ๆ จาก excluded ให้กลายเป็น fully indexed แล้วดันบิล log เดือนหน้าขึ้นสามเท่าแบบเงียบ ๆ ทีม platform หรือ SRE ที่ถือ `logs_modify_indexes` กับ `logs_write_exclusion_filters` ตัดสินใจเรื่องนี้ได้อย่างตั้งใจ โดยคำนึงถึง cost tradeoff ในขณะที่คนอื่นยังมีแค่สิทธิ์ read
+
+<Mermaid title="Splitting read access from index/exclusion/archive control" code={securityRbacDiagramTh} />
+
+export const securityRbacDiagramTh = `flowchart LR
+  A[Engineer role] -->|logs_read_data, logs_generate_metrics, logs_write_facets| B[Search logs, build log-based metrics, edit facets]
+  C[Platform / SRE role] -->|logs_modify_indexes, logs_write_exclusion_filters, logs_write_pipelines, logs_write_archives| D[Change what is indexed, excluded, parsed, archived]
+  E[Auditor role] -->|logs_read_archives| F[Query historical archives only]
+  D -->|directly affects| G[Log Management cost from indexed volume and retention]`
+
+<Callout title="The one-line takeaway">
+Cloud Security Management เฝ้าดู cloud misconfiguration กับ runtime threat, Sensitive Data Scanner จับ pattern sensitive ใน telemetry อย่าง log และ log permission แบบ granular อย่าง `logs_modify_indexes`, `logs_write_exclusion_filters`, `logs_write_archives` แยก lever ที่กระทบ cost ของ Log Management ออกจาก read/query access ปกติ
+</Callout>
+
+export const quizSecurityRbacTh = [
+  {
+    q: 'Cloud Security Management (CSM) ครอบคลุมอะไรบ้าง',
+    options: [
+      'เข้ารหัส data ระหว่าง Agent กับ Datadog อย่างเดียว',
+      'cloud misconfiguration (posture) และ runtime threat บน host, container และ Kubernetes',
+      'ตรวจจับ billing anomaly อย่างเดียว',
+      'log parsing pipeline อย่างเดียว',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'Sensitive Data Scanner ทำอะไร',
+    options: [
+      'ลบ log ที่มี error ทิ้งให้อัตโนมัติ',
+      'ตรวจจับ pattern อย่างเลขบัตรเครดิตหรือ email ใน telemetry เช่น log แล้ว flag, redact หรือ hash ที่ match ได้',
+      'มาแทนที่ Processing Pipeline',
+      'ทำงานกับ metric อย่างเดียว ไม่ทำงานกับ log',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'permission ตัวไหนที่คุมโดยตรงว่าใครสร้างหรือแก้ exclusion filter ที่ตัดสินว่าอะไรไม่ถูก index เลยได้',
+    options: [
+      'logs_read_archives',
+      'logs_write_exclusion_filters',
+      'logs_generate_metrics',
+      'logs_write_facets',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'ทำไม Datadog ถึงแยก log read/query access ออกจาก permission อย่าง `logs_modify_indexes`',
+    options: [
+      'เพราะการอ่าน log เป็นไปไม่ได้เลยถ้าไม่มีสิทธิ์ admin',
+      'เพราะการเปลี่ยน index, exclusion และ archive มีผลกระทบด้าน cost โดยตรง lever นี้เลยไม่ควรเปิดให้ทุกคนที่แค่ต้องการ search log',
+      'เพราะ Datadog คิดเงินเพิ่มสำหรับ read access',
+      'ไม่มีการแยกที่มีความหมาย permission ของ log ทุกตัวเทียบเท่ากันหมด',
+    ],
+    answer: 1,
+  },
+]
+
+<Quiz client:visible id="production-and-ecosystem/security-and-compliance-basics" questions={quizSecurityRbacTh} />
+
+<ProgressTracker client:visible id="production-and-ecosystem/security-and-compliance-basics" />

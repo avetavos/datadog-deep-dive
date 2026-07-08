@@ -1,0 +1,114 @@
+---
+title: 'สร้าง Dashboard และ Notebook'
+description: 'widget type ของ dashboard, โมเดล formula-and-function สำหรับ query, template variable สำหรับ filter และ Notebook เป็นทางเลือกที่เบากว่าสำหรับผสม graph กับข้อความบรรยาย'
+sidebar:
+  order: 4
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ใจความสำคัญในหนึ่งประโยค
+
+Datadog dashboard คือ grid ของ widget แต่ละตัวสร้างจาก named query หนึ่งตัวหรือมากกว่ารวมกันผ่าน **formula** และทำให้ทั้ง dashboard interactive ด้วย **template variable**
+
+## Widget type
+
+widget สามแบบนี้ครอบคลุม dashboard ส่วนใหญ่ที่จะสร้าง
+
+- **timeseries** — กราฟเส้นหรือแท่งของ metric ตามเวลา ตัวเลือก default สำหรับ "ค่านี้ trend ยังไง" เหมาะกับ `system.cpu.user`, request rate, error count และอื่น ๆ
+- **query_value** — ตัวเลขใหญ่ตัวเดียว ปกติเป็นค่าล่าสุดหรือ aggregation ในช่วงเวลาหนึ่ง ใช้กับ KPI แบบดูปราดเดียวรู้เรื่อง เช่น "error rate ตอนนี้" หรือ "active connection ตอนนี้"
+- **group** — widget แบบ container ที่เก็บ widget อื่นไว้ข้างใน และ scope ได้ด้วย tag ทำให้ repeat ชุด graph เดียวกันได้ครั้งละหนึ่งค่าของ tag นั้น เช่น หนึ่ง group ต่อ `service` แต่ละอันมี timeseries widget ชุดเดียวกัน โดยไม่ต้อง duplicate ด้วยมือ
+
+## โมเดล formula and function
+
+query ของ widget ทุกตัวเริ่มจากตั้งชื่อ query — ตามธรรมเนียมคือ `my_query_1`, `my_query_2` และต่อไป — ซึ่งจริง ๆ ก็คือ "metric นี้ filter ด้วย tag พวกนี้ aggregate แบบนี้" ส่วน field **formula** คือ expression เล็ก ๆ ที่ reference named query พวกนั้นด้วยชื่อ ทำให้ทำสองอย่างที่ raw metric query ตัวเดียวทำไม่ได้
+
+1. **คำนวณเลขระหว่าง named query สองตัว** — เช่นคำนวณ error rate เป็น `my_query_1 / my_query_2 * 100` โดย `my_query_1` คือ error count และ `my_query_2` คือ total request count
+2. **ใช้ rollup หรือ anomaly function กับ query ตัวเดียว** — wrap named query ตัวหนึ่งด้วย function อย่าง `rollup(my_query_1, "sum", 300)` เพื่อบังคับ 5-minute rolling sum หรือ `anomalies(my_query_1, "basic")` เพื่อ highlight ความผิดปกติจาก band ที่คาดไว้
+
+พูดแบบ plain-language widget config สำหรับ error-rate timeseries จะอธิบายว่า query `my_query_1` คือ `sum:myservice.errors.count{env:prod}.as_count()`, query `my_query_2` คือ `sum:myservice.requests.count{env:prod}.as_count()` และ formula คือ `(my_query_1 / my_query_2) * 100` แสดงเป็น timeseries line ตัวอย่างเป็น HCL-like snippet สั้น ๆ เชิงอธิบาย (syntax Terraform จริง ๆ จะครอบคลุมทีหลังในบท Production & Ecosystem)
+
+```text
+widget "timeseries" {
+  request {
+    query {
+      name  = "my_query_1"
+      query = "sum:myservice.errors.count{env:prod}.as_count()"
+    }
+    query {
+      name  = "my_query_2"
+      query = "sum:myservice.requests.count{env:prod}.as_count()"
+    }
+    formula {
+      formula_expression = "(my_query_1 / my_query_2) * 100"
+    }
+  }
+}
+```
+
+## Template variable
+
+**template variable** — สมมติชื่อ `var_1` default เป็น tag prefix อย่าง `host` — คือ filter control ระดับ dashboard ที่ถูกแทนค่าเข้าไปใน query ของทุก widget พร้อมกัน แทนที่จะ hardcode `{env:prod}` เข้าไปในทุก widget ทีละตัว ให้ define `var_1` bind กับ tag `env` ตั้งค่า default ให้มัน แล้วทุก widget บน dashboard reference `{{var_1}}` ใน query scope ของตัวเอง เปลี่ยน dropdown ด้านบนของ dashboard ครั้งเดียว ทุก widget re-filter พร้อมกันหมด ในทางปฏิบัติทีมส่วนใหญ่ scope ทั้ง dashboard ด้วย `env` และ `service` แบบนี้ — dashboard template เดียว ใช้ซ้ำได้ทุก environment หรือทุก service แค่เปลี่ยน variable selection ด้านบน แทนที่จะสร้าง dashboard ใหม่ทุกครั้ง
+
+## Notebook ทางเลือกที่เบากว่า
+
+**Notebook** คือวิธีผสม graph กับข้อความบรรยายแบบ freeform คล้าย document มากกว่า — แทรก timeseries กับ query_value cell สลับกับ markdown paragraph ธรรมดา เป็น document แบบเรียงบนลงล่าง ไม่ใช่ grid ตายตัว Notebook คือเครื่องมือธรรมชาติสำหรับการสืบสวนเฉพาะเรื่องหรือเขียนสรุป incident เช่น "นี่คือกราฟ CPU ตอน spike, นี่คือสิ่งที่เปลี่ยน, นี่คือกราฟหลังแก้, นี่คือสรุปของเรา" — เรื่องเล่าที่มีหลักฐานฝังอยู่ในนั้น ไม่ใช่ operational view ที่ใช้ซ้ำแล้วเปิดค้างไว้บนจอ TV dashboard เหมาะกับ ongoing monitoring ส่วน Notebook เหมาะกับการวิเคราะห์เชิงบรรยายแบบครั้งเดียวหรือเป็นระยะ
+
+<Mermaid title="From named queries to a filtered dashboard" code={dashboardDiagramTh} />
+
+export const dashboardDiagramTh = `flowchart LR
+  A[Named query my_query_1: errors] --> C[Formula: my_query_1 / my_query_2 * 100]
+  B[Named query my_query_2: requests] --> C
+  C --> D[Widget: timeseries / query_value / group]
+  E[Template variable var_1 = env] -->|filters| D
+  D --> F[Dashboard]
+  D --> G[Notebook: graphs + narrative text]`
+
+<Callout title="The one-line takeaway">
+dashboard widget สร้างจาก **named query** รวมกันผ่าน **formula** (คำนวณเลขระหว่าง query หรือใช้ rollup/anomaly function กับ query เดียว) filter ทั้ง dashboard ด้วย **template variable** อย่าง `var_1` ที่ scope ด้วย `env` หรือ `service` และ **Notebook** ให้ graph ชุดเดียวกันในรูปแบบ document เชิงบรรยายที่เหมาะกับการสืบสวนครั้งเดียวหรือเขียนสรุป incident มากกว่า
+</Callout>
+
+export const quizDashboardsTh = [
+  {
+    q: 'ควรใช้ widget type ไหนสำหรับตัวเลขปราดเดียวรู้เรื่องอย่าง "active connection ตอนนี้"',
+    options: ['timeseries', 'query_value', 'group', 'notebook'],
+    answer: 1,
+  },
+  {
+    q: 'ในโมเดล formula-and-function formula อย่าง `my_query_1 / my_query_2 * 100` ทำอะไร',
+    options: [
+      'เปลี่ยนชื่อ my_query_1 เป็น my_query_2',
+      'รวม named query สองตัวที่แยกกันด้วยการคำนวณเลข เช่น เพื่อหา error rate',
+      'เป็น syntax ที่ใช้ได้แค่ใน Notebook ไม่ใช่ dashboard',
+      'ลบ my_query_2 ออกจาก widget',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'จุดประสงค์ของ template variable อย่าง var_1 ที่ scope ด้วย env คืออะไร',
+    options: [
+      'hardcode environment เดียวเข้าไปใน dashboard ถาวร',
+      'ให้ทุก widget บน dashboard filter พร้อมกันได้ด้วยการเปลี่ยน dropdown เดียว',
+      'ใช้สำหรับ authentication เข้า dashboard เท่านั้น',
+      'แปลง timeseries widget เป็น query_value widget',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'เมื่อไรที่ Notebook เหมาะกว่า Dashboard',
+    options: [
+      'เมื่อต้องการ operational view ถาวรที่ใช้ซ้ำสำหรับ ongoing monitoring',
+      'เมื่อต้องเขียนสรุปการสืบสวนหรือ incident ครั้งเดียว โดยแทรก graph สลับกับข้อความบรรยาย',
+      'เมื่อต้อง config Metrics without Limits',
+      'เมื่อต้องส่ง custom metric ผ่าน DogStatsD',
+    ],
+    answer: 1,
+  },
+]
+
+<Quiz client:visible id="infrastructure-and-metrics/building-dashboards-and-notebooks" questions={quizDashboardsTh} />
+
+<ProgressTracker client:visible id="infrastructure-and-metrics/building-dashboards-and-notebooks" />

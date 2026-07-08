@@ -1,0 +1,114 @@
+---
+title: 'Dashboards and the Datadog UI Tour'
+description: 'A tour of Infrastructure List/Host Map, Metrics Explorer, Logs Explorer, APM Traces/Services, ordered vs. free dashboards, and Notebooks — all filterable by the same tags.'
+sidebar:
+  order: 5
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The idea in one sentence
+
+Every view in Datadog — Infrastructure, Metrics Explorer, Logs Explorer, APM, Dashboards — is filtered and scoped with the *same* tag syntax, so once you know `env`/`service`/`version` from the previous lesson, you already know how to navigate all of them.
+
+## Where you'll actually look at data
+
+Five views cover almost everything you'll do day to day:
+
+- **Infrastructure List / Host Map** — every host or container Datadog knows about, as a sortable list or a colored grid (the Host Map), colorable by any metric (CPU, memory) and filterable by tag.
+- **Metrics Explorer** — build ad-hoc graphs over any metric, sliced by tag, without committing to a saved dashboard — this is where you go to answer "what does this number actually look like right now."
+- **Logs Explorer** — search and filter indexed log events, build facets out of log attributes, and pivot straight from a log line to its trace if trace injection is set up.
+- **APM Traces / Services** — the Services list shows every `service` tag value Datadog has seen traces for, with latency/error/throughput at a glance; drilling into one service shows its traces and its place in the service map.
+- **Dashboards** — curated, saved collections of widgets, built once and reused by the whole team.
+
+<Mermaid title="One tag filter, five views" code={uiDiagramEn} />
+
+export const uiDiagramEn = `flowchart TD
+    Filter["Tag filter: env:prod service:orders-api"] --> Infra["Infrastructure List / Host Map"]
+    Filter --> Metrics["Metrics Explorer"]
+    Filter --> Logs["Logs Explorer"]
+    Filter --> APM["APM Traces / Services"]
+    Filter --> Dash["Dashboards"]
+`
+
+## Ordered vs. free dashboards
+
+Datadog Dashboards come in two layout types, and picking the right one up front saves a lot of rework later:
+
+- **Ordered** — widgets stack automatically in the sequence you add them, top to bottom. You don't manage pixel positions; you manage a list. This is the right default for most dashboards — fast to build, easy to reorder, and it reflows sanely on any screen size.
+- **Free** — you place each widget manually with explicit `x`, `y`, `width`, and `height` coordinates, giving you a fixed, deliberate layout — useful for a status-board-style dashboard meant to be viewed on a big screen where visual grouping matters more than convenience of editing.
+
+```json
+// A widget on a free dashboard carries explicit layout coordinates
+{
+  "definition": { "type": "timeseries", "title": "orders-api error rate" },
+  "layout": { "x": 0, "y": 0, "width": 6, "height": 3 }
+}
+```
+
+```json
+// The same widget on an ordered dashboard has no layout block —
+// its position is just its position in the widgets array
+{
+  "definition": { "type": "timeseries", "title": "orders-api error rate" }
+}
+```
+
+If you're not sure which one you need, start with **ordered** — you can always widen a widget or split it into two, and you never have to hand-tune coordinates just to add one more graph.
+
+## Notebooks
+
+**Notebooks** are a lighter-weight alternative to a Dashboard for a different job: telling a story, not maintaining a live status board. A Notebook mixes graphs, log queries, and free-text markdown in one scrolling document — the natural place to write up an incident timeline ("here's the latency graph during the spike, here's the deploy marker, here's what we concluded"), a postmortem, or a one-off investigation you want to hand to a teammate. Unlike a Dashboard, a Notebook is meant to be read top to bottom once, not glanced at repeatedly.
+
+## Same tags, every view
+
+The reason all of this hangs together: Infrastructure, Metrics Explorer, Logs Explorer, APM, and Dashboards all accept the exact same tag filter syntax — `env:prod`, `service:orders-api`, `version:1.4.2`, combined with `AND`/`OR` as needed. Set up unified service tagging correctly (previous lesson) and the same three-value filter narrows every one of these views down to "this deployable unit, this environment, this release" — which is the whole reason this course spent an entire lesson on tagging before ever touching dashboards.
+
+<Callout title="The one-line takeaway">
+Infrastructure List/Host Map, Metrics Explorer, Logs Explorer, APM, and Dashboards are five different lenses over the same tagged data — pick **ordered** dashboards by default (stacked, low-maintenance) and **free** only when you need pixel-exact placement, reach for a **Notebook** when you're telling a story instead of maintaining a live view, and navigate all five with the same `env`/`service`/`version` tag filters.
+</Callout>
+
+export const quizUiEn = [
+  {
+    q: 'Which view would you open to see every service Datadog has traces for, with latency/error/throughput at a glance?',
+    options: ['Host Map', 'Metrics Explorer', 'APM Services list', 'Notebooks'],
+    answer: 2
+  },
+  {
+    q: 'What is the key difference between an ordered dashboard and a free dashboard?',
+    options: [
+      'Ordered dashboards cannot contain log widgets',
+      'Ordered widgets stack automatically in sequence; free widgets are placed manually with x/y/width/height',
+      'Free dashboards cannot be shared with a team',
+      'Ordered dashboards only work for APM data'
+    ],
+    answer: 1
+  },
+  {
+    q: 'When is a Notebook the better tool than a Dashboard?',
+    options: [
+      'When you need a live status board for a big screen',
+      'When you are writing a narrative, like an incident timeline mixing graphs and text',
+      'When you need pixel-exact widget placement',
+      'When you only want to look at host-level metrics'
+    ],
+    answer: 1
+  },
+  {
+    q: 'Why can you use the same env:prod AND service:orders-api filter in the Logs Explorer and in APM?',
+    options: [
+      'Because logs and traces are stored in the same database table',
+      'Because both views accept the same tag filter syntax over telemetry tagged consistently by unified service tagging',
+      'Because APM automatically imports all logs',
+      'Because Logs Explorer ignores tag filters'
+    ],
+    answer: 1
+  }
+]
+
+<Quiz client:visible id="foundations/dashboards-and-the-datadog-ui-tour" questions={quizUiEn} />
+
+<ProgressTracker client:visible id="foundations/dashboards-and-the-datadog-ui-tour" />

@@ -1,0 +1,132 @@
+---
+title: 'Traces, Spans, and the Service Map'
+description: 'The trace/span data model — root spans, parent/child relationships, auto-instrumentation vs. manual spans, and how the Service Map builds itself from live traffic.'
+sidebar:
+  order: 1
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The idea in one sentence
+
+A **trace** is the whole end-to-end journey of one request, stitched together from **spans** that form a parent/child tree, and Datadog builds the **Service Map** by reading that tree's structure directly off live traffic — not from a diagram anyone drew by hand.
+
+## Spans: the unit of a trace
+
+A span represents one unit of work — an HTTP request, a database query, a function call. Every span carries a handful of fields that matter:
+
+- **name** — the operation type, e.g. `web.request` or `postgres.query`.
+- **resource** — the more specific thing being done, e.g. `GET /checkout` or `SELECT * FROM orders`.
+- **start and duration** — when the span began and how long it took.
+- **parent/child relationship** — a `parent_id` pointing at the span that caused this one to happen.
+
+A span with no `parent_id` is the **root span** — it marks the start of the trace, usually the inbound request that kicked everything off. Every other span in the trace traces its ancestry back to that root, one parent at a time, which is what turns a flat pile of spans into a tree:
+
+```json
+{
+  "trace_id": "6141ee2f9a4d4b2e8f3c1a90",
+  "span_id": "a1b2c3d4",
+  "parent_id": null,
+  "name": "web.request",
+  "resource": "GET /checkout",
+  "service": "checkout-web",
+  "start": 1699999999000000000,
+  "duration": 45000000
+}
+```
+
+That `parent_id: null` is what makes this particular span the root — every span downstream of it (the database query it triggers, the call to a payments service, and so on) carries a `parent_id` that eventually points back here.
+
+## Auto-instrumentation vs. manual spans
+
+Most of the spans in a trace show up without you writing any tracing code at all. A Datadog tracing library hooks into your framework, your HTTP client, and your database driver — when a request comes in, when an outbound call goes out, when a query runs — and creates a span automatically. This is **auto-instrumentation**, and it's why installing a tracer against a typical web app already produces a reasonably complete trace on day one.
+
+Auto-instrumentation stops at the boundary of your own business logic, though. If you want visibility into a specific block of code — a discount calculation, a batch job step, a cache lookup you wrote yourself — you wrap it in a **manual span**:
+
+```python
+from ddtrace import tracer
+
+def process_order(order):
+    # auto-instrumentation already created a span for the inbound HTTP request;
+    # this manual span adds visibility into a specific block of business logic
+    with tracer.trace("checkout.apply_discount", resource="apply_discount") as span:
+        span.set_tag("order.id", order.id)
+        discount = calculate_discount(order)
+        span.set_tag("discount.amount", discount)
+    return discount
+```
+
+The manual span here becomes a child of whatever span was active when `process_order` ran — usually the root `web.request` span, or another manual span nested above it. Auto-instrumentation and manual spans are not competing techniques; they combine into the same tree.
+
+## The Service Map: built from the tree, not drawn by hand
+
+Every span carries a `service` tag — `checkout-web`, `payments-service`, `inventory-service`. When one span's child has a *different* `service` tag than its parent, that's a real, observed dependency between two services, captured at the moment the request actually crossed that boundary.
+
+The **Service Map** is Datadog reading exactly that signal across every trace flowing through your system: it collapses all those parent→child, service→service edges into a single live graph. Because it's assembled from real span relationships rather than maintained by a person, it updates itself the moment traffic patterns change — a new downstream call shows up on the map as soon as it starts happening, and a decommissioned service drops off once nothing calls it anymore. Compare that to a hand-drawn architecture diagram, which is accurate on the day someone draws it and stale a month later.
+
+<Mermaid title="From span tree to Service Map" code={serviceMapDiagramEn} />
+
+export const serviceMapDiagramEn = `flowchart LR
+  A[Root span: web.request service checkout-web] --> B[Span: db.query service checkout-web]
+  A --> C[Span: http.request service payments-service]
+  C --> D[Span: db.query service payments-service]
+  A --> E[Span: http.request service inventory-service]
+  subgraph SM[Service Map derived from the span tree]
+    S1[checkout-web] --> S2[payments-service]
+    S1 --> S3[inventory-service]
+  end
+  A -.observed service boundary crossings become.-> SM`
+
+<Callout title="The one-line takeaway">
+A trace is a tree of **spans** rooted at the span with no parent, spans come from **auto-instrumentation** (framework/HTTP/DB hooks) plus any **manual spans** you add around custom logic, and the **Service Map** is just those spans' parent→child and `service`-tag relationships rendered live — it updates itself as traffic changes instead of going stale like a hand-drawn diagram.
+</Callout>
+
+export const quizTracesSpansEn = [
+  {
+    q: 'What identifies a span as the root span of a trace?',
+    options: [
+      'It has the longest duration of any span in the trace',
+      'It has no `parent_id`',
+      'It is always named `web.request`',
+      'It is the last span created chronologically',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'What is the main difference between auto-instrumentation and a manual span?',
+    options: [
+      'Manual spans cannot have a parent',
+      'Auto-instrumentation only works in Python',
+      'Auto-instrumentation is created automatically by hooks into your framework/HTTP client/DB driver, while a manual span is code you write to wrap a specific block of custom logic',
+      'There is no difference — they produce identical data',
+    ],
+    answer: 2,
+  },
+  {
+    q: 'What does the Service Map actually get built from?',
+    options: [
+      'A YAML file you maintain describing your architecture',
+      'Parent/child span relationships and each span\'s `service` tag, observed from live traces',
+      'A manually drawn diagram uploaded by an engineer',
+      'DNS records collected by the Agent',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'Why does the Service Map stay accurate over time without anyone updating it?',
+    options: [
+      'Datadog support manually verifies it weekly',
+      'It only shows services that were configured at setup time',
+      'It is regenerated from real span/service relationships in live traffic, so new or removed dependencies show up as traffic actually changes',
+      'It is cached once and never changes',
+    ],
+    answer: 2,
+  },
+]
+
+<Quiz client:visible id="apm-and-distributed-tracing/traces-spans-and-the-service-map" questions={quizTracesSpansEn} />
+
+<ProgressTracker client:visible id="apm-and-distributed-tracing/traces-spans-and-the-service-map" />

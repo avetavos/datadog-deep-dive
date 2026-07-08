@@ -1,0 +1,121 @@
+---
+title: 'Production Rollout Checklist'
+description: 'A capstone, ordered checklist for going to production with Datadog, tying together tagging, log and metric cost, APM sampling and retention, SLOs and alerting, ownership, and infrastructure as code from every earlier module.'
+sidebar:
+  order: 4
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The idea in one sentence
+
+Going to production with Datadog is a checklist, not a single switch, and every item on it traces back to a decision this course already taught you how to make — from Foundations tagging, through Infrastructure & Metrics, Log Management, APM & Distributed Tracing, Monitors/Alerting/SLOs, and Correlating Signals.
+
+## Tagging and ownership, first because everything else depends on it
+
+- **Unified service tagging is consistent everywhere.** `env`, `service`, and `version` are applied the same way across Agent configuration, APM tracer setup, and every `logs:` source — this is the Foundations-module tagging model that lets a log line, a trace, and a metric correlate back to one deployable unit. Fixing this after go-live means every dashboard and monitor built in the meantime silently missed some of your telemetry.
+- **Service Catalog entries exist and are accurate.** Every service that will page someone has a Service Catalog entry with real ownership: which team, which escalation path, which links to runbooks. This is what the Correlating Signals module set up, and it's the difference between an alert reaching the on-call engineer and an alert reaching a stale mailing list.
+
+## Log and metric cost, decided deliberately, not by default
+
+- **Log indexes are sized on purpose.** Retention and daily quota per index reflect the actual value of that log stream, not "index everything and figure it out later" — the Log Management module's whole point.
+- **Exclusion filters exist for high-volume, low-value logs** before volume scales up in production, not retrofitted after the first surprising invoice.
+- **Log-based metrics are set up for anything you plan to exclude.** If you still need counts or trends from a log stream you're about to filter out, configure `logs_generate_metrics`-backed log-based metrics first — excluding the raw logs should never silently blind you to a trend you cared about.
+- **Custom metric tags are reviewed with cardinality in mind.** High-cardinality tags like `pod_name` can still be submitted; Metrics without Limits controls which ones are actually indexed and queryable, and that choice should be deliberate before go-live, not discovered from a cost spike.
+
+## APM sampling and retention reviewed as two separate layers
+
+- **Ingestion sampling is set intentionally.** This is the layer that decides how much of total trace volume reaches Datadog at all — it should be a deliberate rate, not whatever the default happened to be.
+- **Retention filters are reviewed separately from sampling.** Confirm which traces get retained long-term regardless of sampling — for example, everything with an error, or everything above a latency threshold — and that nobody on the team is conflating "we sample less" with "we retain less." They are two different knobs from the APM & Distributed Tracing module, and go-live is the time to check both, not just one.
+
+## Alerting wired to what actually matters
+
+- **SLOs are defined for the handful of services the business actually depends on** — not a vanity metric copied onto every service just because it was easy to add.
+- **Burn-rate alerts are wired to those SLOs**, so a team gets notified while there's still error budget left to react, not after it's already gone. This is the Monitors, Alerting, and SLOs module's core mechanism, and it only works if it's actually connected before go-live.
+- **Every monitor's notification target is checked against the Service Catalog owner** from the tagging step above, so a page reaches the team that can actually act on it.
+
+## Manage it all as code, review it like code
+
+- **Monitors, dashboards, and SLOs are expressed as Terraform resources** — `datadog_monitor`, `datadog_dashboard_v2`, `datadog_service_level_objective` — rather than clicked together by hand, as covered earlier in this module.
+- **`terraform plan` runs with query validation on**, as part of ordinary pull request review, before any monitor or dashboard change reaches production — the same review bar as any other infrastructure change.
+- **RBAC is checked**, confirming only the intended roles hold permissions like `logs_modify_indexes` and `logs_write_exclusion_filters`, while everyone else keeps plain read/query access.
+- **A Cloud Cost Management cost alert monitor exists** for the services or accounts this rollout affects, so a cost spike gets the same alerting treatment as a latency spike, not a surprise at the end of the month.
+
+```text
+Go-Live Checklist
+1. Unified tagging (env/service/version) verified across Agent, APM, logs
+2. Service Catalog ownership accurate for every paging service
+3. Log indexes and exclusion filters sized deliberately; log-based metrics set up first
+4. Custom metric tag cardinality reviewed via Metrics without Limits
+5. APM ingestion sampling and retention filters reviewed as two separate layers
+6. SLOs and burn-rate alerts wired to business-critical services only
+7. Monitor notification targets checked against Service Catalog owners
+8. Monitors/dashboards/SLOs as Terraform code, reviewed via PR with query validation on
+9. RBAC checked: index/exclusion/archive permissions restricted, read access broad
+10. Cloud Cost Management cost alert in place for the affected services/accounts
+```
+
+<Mermaid title="Production rollout checklist, phase by phase" code={rolloutChecklistDiagram} />
+
+export const rolloutChecklistDiagram = `flowchart LR
+  A[Tagging and ownership] --> B[Log and metric cost decisions]
+  B --> C[APM sampling and retention review]
+  C --> D[SLOs and burn-rate alerting]
+  D --> E[Infrastructure as code review]
+  E --> F[Go-live]
+  A -.Service Catalog owner.-> D
+  B -.cost alert monitor.-> E`
+
+<Callout title="The one-line takeaway">
+A production rollout checklist for Datadog is not one switch to flip — it's unified tagging and Service Catalog ownership set first, log/metric cost decided deliberately, APM sampling and retention filters reviewed as two separate layers, SLOs and burn-rate alerts wired to business-critical services, and all of it managed as reviewed Terraform code with RBAC and cost alerting checked before go-live.
+</Callout>
+
+export const quizRolloutChecklist = [
+  {
+    q: 'Why should ingestion sampling and retention filters both be reviewed separately before go-live?',
+    options: [
+      'They are the same setting under two different names, so reviewing one covers the other',
+      'They are two separate layers — sampling controls how much trace volume arrives at all, retention filters control what is kept long-term regardless of sampling',
+      'Retention filters only matter for logs, not traces',
+      'Ingestion sampling is deprecated and no longer configurable',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'Before excluding a high-volume, low-value log stream, what should be set up first?',
+    options: [
+      'Nothing — exclusion filters cannot affect visibility into trends',
+      'A log-based metric, if you still need counts or trends from that stream',
+      'A new Service Catalog entry',
+      'A cost alert monitor specifically for that log stream',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'Why does accurate Service Catalog ownership matter for go-live?',
+    options: [
+      'It is purely cosmetic documentation with no effect on alerting',
+      'It ensures monitor notifications actually reach the team that owns and can act on a service',
+      'It replaces the need for unified service tagging',
+      'It is only used for billing purposes',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'Why manage monitors, dashboards, and SLOs as Terraform code reviewed via pull request, instead of clicking them together in the UI?',
+    options: [
+      'The UI cannot create monitors at all',
+      'It gives configuration the same review, versioning, and reuse-across-environments treatment as any other production change',
+      'Terraform is required by Datadog for any account with more than one monitor',
+      'It removes the need for RBAC permissions entirely',
+    ],
+    answer: 1,
+  },
+]
+
+<Quiz client:visible id="production-and-ecosystem/production-rollout-checklist" questions={quizRolloutChecklist} />
+
+<ProgressTracker client:visible id="production-and-ecosystem/production-rollout-checklist" />

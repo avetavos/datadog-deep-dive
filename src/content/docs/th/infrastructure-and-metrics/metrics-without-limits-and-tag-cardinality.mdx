@@ -1,0 +1,97 @@
+---
+title: 'Metrics without Limits และ Tag Cardinality'
+description: 'ทำไม cost ของ custom metric ขึ้นอยู่กับ tag cardinality ไม่ใช่ปริมาณ ingestion และ Metrics without Limits ช่วยควบคุมว่า tag ไหน query ได้ต่อ metric ยังไง'
+sidebar:
+  order: 3
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ใจความสำคัญในหนึ่งประโยค
+
+ตัวขับ cost จริงของ custom metric คือ **tag cardinality** จำนวน combination ของ tag-value ที่ถูก index และ query ได้ ไม่ใช่จำนวน data point ดิบที่ ingest เข้ามา
+
+## Cardinality คือ cost ไม่ใช่ volume
+
+หลายคนคิดว่า cost ของ metric เหมือน log หรือ trace คือยิ่ง data point เยอะยิ่งแพง แต่ custom metric ไม่ได้ทำงานแบบนั้นเป๊ะ ๆ ชื่อ metric ผสมกับ **combination ของ tag value ที่ไม่ซ้ำกันทุกแบบ** ที่มันถูกส่งมาด้วย จะกลายเป็น time series แยกที่ Datadog ต้อง index ให้ query และ graph ได้ ถ้า tag metric ด้วยอะไรที่ cardinality ต่ำอย่าง `env` (มีค่าไม่กี่แบบ เช่น `prod`, `staging`, `dev`) ก็จะได้ time series แค่ไม่กี่ตัว แต่ถ้า tag metric ตัวเดียวกันด้วย `pod_name` ใน Kubernetes cluster ที่หมุนเวียนชื่อ pod เป็นพันชื่อต่อวัน ก็สามารถสร้าง time series ที่แตกต่างกันจำนวนมหาศาลจาก metric ชื่อเดียวได้ และ combinatorial explosion นี้เอง ไม่ใช่ volume ของการ submit ดิบ ที่เป็นตัวขับ billing ของ custom metric
+
+## Metrics without Limits ทำอะไรจริง ๆ
+
+**Metrics without Limits** แยก "ส่ง metric นี้ด้วย tag อะไรบ้าง" ออกจาก "tag ไหนถูก index และ query ได้จริงสำหรับ metric นี้ใน Datadog" ในทางปฏิบัติคือ ยังส่ง metric พร้อม tag cardinality สูงอย่าง `pod_name` จาก application หรือ DogStatsD client ได้ต่อไป — instrumentation ไม่ต้องเปลี่ยนอะไรเลย — แล้วไปที่ Datadog UI (หรือผ่าน API/Terraform) config metric ตัวนั้นเฉพาะให้ index แค่ subset ของ tag ที่เลือกไว้ เช่น `service` กับ `env` Datadog ยังคง ingest ค่าดิบเหมือนเดิม แต่ time series ที่ query ได้ของ metric นั้นจะยุบลงเหลือแค่ combination cardinality ต่ำตามที่ config ไว้ และนั่นคือสิ่งที่ถูกคิด billing
+
+จุดสำคัญคือ config นี้เป็นแบบ **ต่อ custom metric** และ **ไม่ทำลายข้อมูลและย้อนกลับได้** ถ้าอีกไม่กี่สัปดาห์ต่อมากำลัง debug ปัญหาแล้วต้องการแบ่ง metric ตัวเดียวกัน `by pod_name` เพื่อสืบสวนลึกขึ้น ก็เปิด tag นั้นกลับมาให้ query ได้ — ไม่ได้หายไปตลอดกาลเพียงเพราะเมื่อวานไม่ได้ index ไว้ และไม่ต้องแตะ application code หรือ deploy ใหม่เพื่อเปลี่ยนแปลงนี้เลย นี่คือประเด็นหลัก instrument แบบเปิดกว้างด้วย tag cardinality สูงตั้งแต่แรก แล้วควบคุม cost ด้วยการเลือกว่าอะไร query ได้ และปรับตัวเลือกนั้นทีหลังได้โดยไม่ต้อง re-instrument
+
+```text
+Metric: myservice.request.duration
+Submitted tags:   env, service, pod_name, availability_zone
+Indexed tags (configured today):  env, service
+  -> queryable combinations: small, low cost
+Indexed tags (turned on later, for an investigation): env, service, pod_name
+  -> queryable combinations: large, higher cost, but only while you need it
+```
+
+## Percentile aggregation ตอน query
+
+อีกแนวคิดที่เกี่ยวข้องและมักทำให้สับสนคู่กับ cardinality คือสำหรับ metric type `DISTRIBUTION` (จากบทก่อนหน้า) ไม่ได้ล็อก "avg" หรือ "p95" ไว้ตอน submit — เลือก **aggregation** ตอนที่ query หรือ graph metric จริง ๆ ต่างหาก ข้อมูล distribution ชุดเดียวกันดูเป็น `avg`, `max`, `p50`, `p95`, หรือ `p99` ได้ตามที่เลือกใน query editor หรือ dashboard widget โดยไม่ต้อง resubmit อะไรเลย นี่คือคนละมิติกับ tag cardinality cardinality ควบคุมว่า tag combination ไหน query ได้ ส่วน aggregation ควบคุมว่าค่าตัวเลขภายใน combination ที่เลือกไว้ถูกสรุปยังไงตอนที่ดูมัน
+
+<Mermaid title="Raw ingestion vs. indexed, queryable tags" code={mwlDiagramTh} />
+
+export const mwlDiagramTh = `flowchart LR
+  A[App / DogStatsD submits high-cardinality tags: pod_name, az, env, service] --> B[Raw ingestion: cheap, all tags accepted]
+  B --> C{Metrics without Limits config}
+  C -->|indexed today: env, service| D[Queryable time series: low cardinality, lower cost]
+  C -->|can enable later: + pod_name| E[Queryable time series: higher cardinality, for deep investigation]`
+
+<Callout title="The one-line takeaway">
+cost ของ custom metric มาจาก **tag cardinality ที่ index ไว้** ไม่ใช่ volume ของการ ingest ดิบ **Metrics without Limits** ให้ ingest tag cardinality สูงอย่าง `pod_name` แบบถูก ในขณะที่จ่ายแค่ view cardinality ต่ำอย่าง `by service` และเปิด tag เพิ่มทีหลังเพื่อสืบสวนได้โดยไม่ต้องแตะ instrumentation
+</Callout>
+
+export const quizMwlTh = [
+  {
+    q: 'อะไรคือตัวขับหลักของ cost custom metric ใน Datadog',
+    options: [
+      'จำนวน data point ดิบที่ ingest ต่อวินาที',
+      'จำนวน combination ของ tag-value ที่ index (cardinality) ของ metric นั้น',
+      'จำนวน dashboard ที่ metric นั้นปรากฏอยู่',
+      'metric type (gauge เทียบกับ count)',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'Metrics without Limits ให้ทำอะไรได้',
+    options: [
+      'ส่ง custom metric ได้ไม่จำกัดฟรี',
+      'เลือกว่า tag ไหนถูก index/query ได้สำหรับ metric หนึ่ง โดยไม่ขึ้นกับสิ่งที่ส่งมา',
+      'ลบ tag cardinality สูงออกจากโค้ดอัตโนมัติ',
+      'แปลง HISTOGRAM เป็น DISTRIBUTION ย้อนหลัง',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'ถ้าปิด indexing ของ tag `pod_name` สำหรับ metric หนึ่งวันนี้ แล้วเปิดกลับมาเดือนหน้าจะเกิดอะไรขึ้น',
+    options: [
+      'ต้อง re-instrument application ใหม่เพื่อเริ่มเก็บ pod_name อีกครั้ง',
+      'metric ถูกล็อกไว้ถาวรกับ tag ที่เลือกไว้ตั้งแต่วันแรก',
+      'เปิด pod_name กลับมาให้ query ได้โดยไม่ต้องเปลี่ยน instrumentation',
+      'การเปิด tag กลับต้องเปิด support ticket ให้ทีม engineering ของ Datadog',
+    ],
+    answer: 2,
+  },
+  {
+    q: 'สำหรับ DISTRIBUTION metric เลือก aggregation เช่น avg, p95, หรือ max ตอนไหน',
+    options: [
+      'ตอน submit ใน client library call',
+      'ตอน query/graph ใน dashboard หรือ query editor',
+      'ถูกล็อกถาวรตาม type code ของ metric',
+      'มีแค่ Datadog support เท่านั้นที่ set aggregation ได้',
+    ],
+    answer: 1,
+  },
+]
+
+<Quiz client:visible id="infrastructure-and-metrics/metrics-without-limits-and-tag-cardinality" questions={quizMwlTh} />
+
+<ProgressTracker client:visible id="infrastructure-and-metrics/metrics-without-limits-and-tag-cardinality" />

@@ -1,0 +1,109 @@
+---
+title: 'RUM กับ Context ของผู้ใช้จริง'
+description: 'แนะนำ Real User Monitoring แบบเบา ๆ — session, view, action และ error ที่จับมาจาก browser/mobile SDK จริง — และ RUM propagate trace context เข้าไปใน backend request ได้อย่างไร ขยาย correlation ออกไปอีกหนึ่ง hop จาก backend trace'
+sidebar:
+  order: 4
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ไอเดียหลักในหนึ่งประโยค
+
+RUM เก็บสิ่งที่ผู้ใช้จริงทำในเบราว์เซอร์หรือแอปเป็น structured event และเมื่อมัน propagate trace context เข้าไปใน backend call ที่ action นั้น trigger มันขยายเรื่อง correlation ออกไปอีกหนึ่ง hop เลยจาก backend trace ไปถึงตัวคนที่เป็นต้นเหตุ
+
+## RUM เก็บอะไรบ้างจริง ๆ
+
+**Real User Monitoring (RUM)** รันเป็น SDK อยู่ในเบราว์เซอร์หรือแอปมือถือเอง ไม่ได้รันบน server ของเรา ตอนผู้ใช้จริง interact กับหน้าหรือแอป มันปล่อย structured event type สั้น ๆ ไม่กี่แบบ
+
+- **session** — การเข้ามาเยี่ยมหนึ่งครั้ง ตั้งแต่ต้นจนจบ
+- **view** — หน้า (หรือ screen บนมือถือ) ที่ผู้ใช้ไปถึง
+- **action** — คลิก, แตะ, submit form
+- **error** — JS exception หรือโหลด resource ไม่สำเร็จ ที่ถูกจับฝั่ง client
+
+นี่คือมุมมองที่ต่างจาก synthetic monitoring (เบราว์เซอร์ที่รัน script แกล้งเป็นผู้ใช้ตามตารางเวลา พูดถึงใน module อื่นของคอร์สนี้) RUM คือเบราว์เซอร์จริงของผู้ใช้จริง เกิดขึ้นตามเวลาจริง สะท้อนสภาพ network จริง อุปกรณ์จริง และเส้นทางจริงที่ผู้ใช้เดินผ่าน product — ไม่ใช่เส้นทางในอุดมคติของ script ตัวเดียว
+
+## จากคลิกหนึ่งครั้งไปถึง backend trace
+
+ลำพัง RUM action หรือ view คือข้อมูลฝั่ง frontend เท่านั้น — มันบอกว่าผู้ใช้คลิก "Pay now" แต่ไม่บอกว่าเกิดอะไรขึ้นบน server หลังจากนั้น payoff ของการ correlate คือ พอตั้งค่า RUM SDK ให้ trace URL ฝั่ง backend ชุดหนึ่งไว้ มันจะแปะ trace context header แบบเดียวกับที่ backend tracer มองหา ลงไปใน XHR/fetch call ที่ส่งออกไป ทำให้ span ของ backend service ที่ถูกสร้างขึ้น ลิงก์กลับไปหา RUM view/action ตัวนั้นได้พอดี
+
+```javascript
+window.DD_RUM.init({
+  applicationId: '<RUM_APP_ID>',
+  clientToken: '<RUM_CLIENT_TOKEN>',
+  service: 'checkout-web',
+  allowedTracingUrls: [
+    (url) => url.startsWith('https://api.example.com')
+  ]
+});
+```
+
+`allowedTracingUrls` คือ allowlist ที่บอก RUM SDK ว่า backend call ไหนปลอดภัยและควรได้รับ trace header ที่ inject เข้าไป — เฉพาะ call ไปหา backend ของเราเอง ไม่ใช่ third-party service
+
+## request เดียว traced ยาวไปถึงตัวคน
+
+backend trace อย่างเดียวตอบได้แค่ "span ไหน จาก service ไหนบ้าง ที่จัดการ request นี้" — นั่นคือเรื่องทั้งหมดที่ module APM เล่าไว้ RUM ขยายไอเดีย `trace_id` เดียวกันนี้ออกไปอีกหนึ่ง hop เลยขอบ infrastructure ของเราออกไป identifier ตัวเดียวกันที่ผูก span เข้าด้วยกันข้าม service ก็ผูกกลับไปหา RUM view/session ได้ด้วย ตอบคำถามว่า "ผู้ใช้จริงคนไหน อยู่หน้าไหน คลิกอะไร ถึงทำให้ trace นี้เกิดขึ้นมาตั้งแต่แรก" บทนี้ตั้งใจให้เบา ๆ — RUM เป็นหัวข้อใหญ่พอจะเป็นคอร์สแยกได้เลย — แต่ไอเดีย correlation ก็คือไอเดียเดียวกับที่ module นี้สร้างมาตลอด นั่นคือ identifier ที่ใช้ร่วมกัน แทนการเดาเอาเอง
+
+<Mermaid title="From a click to a distributed trace" code={rumContextDiagramTh} />
+
+export const rumContextDiagramTh = `flowchart LR
+  U[Real user in browser] --> Act["RUM action: click 'Pay now'"]
+  Act --> View[RUM view/session]
+  Act --> Req["Traced fetch/XHR call\\n(trace context injected)"]
+  Req --> Span[Backend service span]
+  Span --> Trace[APM distributed trace]
+  View -.linked to.-> Trace
+`
+
+<Callout title="The one-line takeaway">
+RUM เปลี่ยนสิ่งที่ผู้ใช้จริงทำในเบราว์เซอร์หรือแอปให้กลายเป็น structured event ของ session/view/action/error และเมื่อมัน propagate trace context เข้าไปใน backend call ที่ action พวกนั้น trigger มันขยาย correlation ออกไปอีกหนึ่ง hop จาก backend trace — จาก "span ไหนจัดการ request นี้" ไปถึง "ผู้ใช้จริงคนไหนเป็นต้นเหตุ"
+</Callout>
+
+export const quizRumContextTh = [
+  {
+    q: 'ข้อแตกต่างหลักระหว่าง RUM กับ synthetic monitoring คืออะไร',
+    options: [
+      'RUM เก็บ session ของผู้ใช้จริงจากเบราว์เซอร์/แอปจริง ส่วน synthetic monitoring รัน script เบราว์เซอร์ตามตารางเวลา',
+      'RUM ใช้ได้แค่บนแอปมือถือเท่านั้น',
+      'synthetic monitoring เก็บคลิกของผู้ใช้จริง ส่วน RUM ไม่เก็บ',
+      'ทั้งสองคือ feature เดียวกันแค่เรียกชื่อต่างกัน'
+    ],
+    answer: 0
+  },
+  {
+    q: 'ข้อไหนไม่ใช่ structured event type ที่ RUM เก็บ',
+    options: [
+      'session',
+      'view',
+      'action',
+      'log processing pipeline'
+    ],
+    answer: 3
+  },
+  {
+    q: 'allowedTracingUrls ใน RUM SDK initialization ควบคุมอะไร',
+    options: [
+      'หน้าไหนที่ RUM SDK ได้รับอนุญาตให้ monitor',
+      'backend URL ไหนที่จะได้รับ trace context header ที่ inject มาจาก frontend',
+      'user คนไหนที่ถูก track เป็น session',
+      'sampling rate ของ RUM session'
+    ],
+    answer: 1
+  },
+  {
+    q: 'RUM ขยายเรื่อง correlation ที่ backend trace อย่างเดียวสร้างไว้อย่างไร',
+    options: [
+      'มันแทนที่ backend trace ไปเลยทั้งหมด',
+      'มันลิงก์ session/view/action ของผู้ใช้จริงไปถึง backend trace ที่ action นั้นเป็นต้นเหตุ',
+      'มันใช้ได้แค่กับแอปมือถือ ไม่ใช่เบราว์เซอร์',
+      'มันตัดความจำเป็นของ env/service/version triple ทิ้งไป'
+    ],
+    answer: 1
+  }
+]
+
+<Quiz client:visible id="correlating-signals/rum-and-real-user-context" questions={quizRumContextTh} />
+
+<ProgressTracker client:visible id="correlating-signals/rum-and-real-user-context" />

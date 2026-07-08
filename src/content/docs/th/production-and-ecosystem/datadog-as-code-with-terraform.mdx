@@ -1,0 +1,168 @@
+---
+title: 'จัดการ Datadog เป็น Code ด้วย Terraform'
+description: 'จัดการ monitor, dashboard และ SLO ของ Datadog เป็น Terraform code ที่ review และ reuse ได้ แทนที่จะคลิกทำเองใน UI'
+sidebar:
+  order: 1
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ไอเดียหลักในหนึ่งประโยค
+
+Terraform Datadog provider ตัวทางการ ทำให้คุณ define monitor, dashboard และ SLO เป็น code ที่ versioned และ review ได้ แทนที่จะคลิกประกอบเองทีละ environment ใน UI
+
+## ทำไมต้องจัดการ Datadog เป็น code
+
+คลิกประกอบ monitor ใน UI ครั้งแรกมันเร็วดี ปัญหาจะโผล่มาตอนครั้งที่สอง — คุณต้องการ monitor ตัวเดียวกันใน staging, dashboard ตัวเดียวกันใน region ใหม่ หรือต้องรู้ให้ได้ว่า threshold ที่เปลี่ยนไปเมื่อเดือนก่อนคืออะไรและทำไม config ที่ประกอบผ่าน UI ไม่มี diff ไม่มีขั้นตอน review และไม่มี single source of truth — สองคนอาจเข้าใจ threshold ของ monitor ไม่ตรงกันแบบเงียบ ๆ แล้วไม่มีอะไรจับได้เลย
+
+การจัดการ monitor, dashboard และ SLO ผ่าน Terraform Datadog provider เปลี่ยนทุกอย่างนี้ให้เป็น code change — มันอยู่ใน repository, ถูก review ผ่าน pull request เหมือน change อื่น ๆ ที่ลง production และ module เดียวกันนำไป instantiate ซ้ำได้ทั้ง `prod`, `staging` และทุก service ใหม่ที่เพิ่มเข้ามา แค่เปลี่ยน variable แทนที่จะคลิก wizard ใหม่ทุกครั้ง
+
+## resource `datadog_monitor` ตัวจริง
+
+นี่คือ metric alert monitor ที่เขียนเป็น Terraform
+
+```terraform
+resource "datadog_monitor" "high_cpu" {
+  name    = "High CPU on checkout-service"
+  type    = "metric alert"
+  message = "CPU is high on checkout-service. Notify: @slack-sre-alerts"
+
+  query = "avg(last_5m):avg:system.cpu.user{service:checkout-service} by {host} > 85"
+
+  monitor_thresholds {
+    warning  = 70
+    critical = 85
+  }
+
+  tags = ["service:checkout-service", "team:checkout"]
+}
+```
+
+- **`type`** — `metric alert` เป็นหนึ่งใน monitor type หลายแบบ (ตัวอื่นมี `log alert`, `apm alert` และ `cost alert` ที่จะเจอในบทถัดไป)
+- **`message`** — เนื้อหาที่แจ้งเตือน handle `@slack-sre-alerts` เป็น notification target ของ Datadog resolve เหมือนกับที่พิมพ์เข้าไปใน message box ของ UI ทุกอย่าง
+- **`query`** — เงื่อนไข alert จริง ๆ ประเมินเป็น `avg(last_5m):avg:system.cpu.user{service:checkout-service} by {host} > 85`
+- **`monitor_thresholds`** — `warning` กับ `critical` map ตรงกับ threshold slider ที่ปกติต้องลากเองใน UI
+- **`tags`** — tag ปกติของ Datadog ที่ติดกับตัว monitor เอง ใช้ filter หน้า Manage Monitors และ route ผ่าน Service Catalog ownership ได้
+
+**ข้อควรระวังสำคัญ:** string `query` ใน resource `datadog_monitor` ไม่ใช่ syntax เดียวกับที่พิมพ์ใน monitor query builder ของ UI Datadog UI builder เป็น widget ที่ช่วยประกอบ query ให้ทีละขั้น แต่ field `query` ใน Terraform คือ **API query syntax** ดิบ ๆ ต้องเขียนเองให้ถูกต้องตั้งแต่รอบแรก โดย default `terraform plan` จะส่ง query นี้ไปที่ API ของ Datadog เพื่อ validate ดังนั้น query ที่ผิดรูปแบบจะ fail ตั้งแต่ตอน plan ไม่ใช่ไปสร้าง monitor พังแบบเงียบ ๆ ถ้าจำเป็นต้องข้าม check นี้จริง ๆ — เช่น อ้างถึง metric ที่ยังไม่มีใน environment นี้ — ตั้ง `validate = false` บน resource ได้ แต่นั่นคือการแลก safety net ทิ้งไป ควรเป็นข้อยกเว้น ไม่ใช่ default
+
+## dashboard เป็น code: layout `ordered` กับ `free`
+
+บทเรียน dashboard จากโมดูล Infrastructure & Metrics คุยเรื่อง named query, formula และ template variable ในมุมของ UI widget model เดียวกันนี้โผล่มาใน Terraform ผ่าน `datadog_dashboard_v2` และตัวเลือกเพิ่มเติมที่ต้องตัดสินใจตอนเขียน code คือ `layout_type`
+
+ด้วย `layout_type = "ordered"` widget แต่ละตัวจะเรียงซ้อนบนลงล่างตามลำดับที่ declare ไว้ — ตัวเลือกที่ง่ายที่สุด และเป็น default ที่ดี
+
+```terraform
+resource "datadog_dashboard_v2" "checkout_overview" {
+  title       = "Checkout Service Overview"
+  layout_type = "ordered"
+
+  widget {
+    timeseries_definition {
+      request {
+        query {
+          name        = "query1"
+          data_source = "metrics"
+          query       = "avg:system.cpu.user{service:checkout-service} by {host}"
+        }
+        display_type = "line"
+      }
+    }
+  }
+}
+```
+
+ด้วย `layout_type = "free"` widget ทุกตัวต้องมี block `widget_layout` ของตัวเอง ให้ตำแหน่งแบบ pixel-grid ที่แน่นอนด้วย `x`, `y`, `width` และ `height`
+
+```terraform
+resource "datadog_dashboard_v2" "checkout_overview_free" {
+  title       = "Checkout Service Overview (free layout)"
+  layout_type = "free"
+
+  widget {
+    timeseries_definition {
+      request {
+        query {
+          name        = "query1"
+          data_source = "metrics"
+          query       = "avg:system.cpu.user{service:checkout-service} by {host}"
+        }
+        display_type = "line"
+      }
+    }
+    widget_layout {
+      x      = 0
+      y      = 0
+      width  = 4
+      height = 2
+    }
+  }
+}
+```
+
+`ordered` เป็น default ที่เหมาะกับ dashboard operational ส่วนใหญ่ — ไม่ค่อยต้องมาสู้กับตำแหน่ง pixel สำหรับ dashboard ที่ส่วนใหญ่ scroll ดูบนลงล่างอยู่แล้ว `free` คุ้มค่าตอนทำ dashboard ติดจอ TV-wall หรือ layout ที่ตั้งใจ design ให้ widget อยู่ตำแหน่งสัมพัทธ์กันแบบเจาะจง
+
+<Mermaid title="From HCL to live Datadog resources" code={terraformDiagramTh} />
+
+export const terraformDiagramTh = `flowchart LR
+  A[Write datadog_monitor / datadog_dashboard_v2 in HCL] --> B[terraform plan]
+  B --> C{Query validation}
+  C -->|valid, or validate = false| D[Pull request review]
+  C -->|invalid| E[Plan fails: fix query]
+  D --> F[terraform apply]
+  F --> G[Monitor / Dashboard / SLO created in Datadog]
+  G --> H[Reused across prod, staging, new services via variables]`
+
+<Callout title="The one-line takeaway">
+Terraform Datadog provider เปลี่ยน monitor, dashboard และ SLO ให้เป็น code ที่ versioned และ review ได้ — แต่อย่าลืมว่า field `query` ใน `datadog_monitor` ใช้ API query syntax (ไม่ใช่ของ UI query builder) `terraform plan` validate มันโดย default และ `datadog_dashboard_v2` ต้องมี block `widget_layout` ชัดเจนก็ต่อเมื่อ `layout_type = "free"` เท่านั้น
+</Callout>
+
+export const quizTerraformTh = [
+  {
+    q: 'ข้อดีหลักของการจัดการ monitor และ dashboard ของ Datadog ผ่าน Terraform แทน UI คืออะไร',
+    options: [
+      'เป็นวิธีเดียวที่ตั้ง threshold ของ monitor ได้',
+      'configuration กลายเป็น code ที่ versioned review ได้ และ reuse ข้าม environment ได้',
+      'ไม่ต้องมี notification target อีกต่อไป',
+      'ลบ monitor ที่ไม่ใช้แล้วให้อัตโนมัติ',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'syntax ของ `query` ใน resource `datadog_monitor` เทียบกับ monitor query builder ใน UI ของ Datadog เป็นยังไง',
+    options: [
+      'เหมือนกันทุกอย่าง เอาสิ่งที่พิมพ์ใน UI มา paste ใส่ Terraform ได้เลย',
+      'field `query` ใน Terraform ใช้ API query syntax ซึ่งไม่เหมือนกับ UI builder',
+      'monitor ของ Terraform ไม่รองรับ query เลย',
+      'UI query builder ถูก generate มาจาก Terraform state file',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'โดย default `terraform plan` ทำอะไรกับ field `query` ของ `datadog_monitor`',
+    options: [
+      'เพิกเฉยต่อ query จนกว่าจะถึงตอน apply',
+      'ส่ง query ไปให้ API ของ Datadog validate เว้นแต่ตั้ง `validate = false` ไว้',
+      'เขียน query ที่ผิดใหม่ให้เป็นตัวที่ถูกต้องที่ใกล้เคียงที่สุดให้อัตโนมัติ',
+      'ลบ monitor ทิ้งถ้า query ดูน่าสงสัย',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'ใน resource `datadog_dashboard_v2` ต้องมี block `widget_layout` พร้อม x/y/width/height ของแต่ละ widget ชัดเจนตอนไหน',
+    options: [
+      'ต้องมีเสมอ ไม่ว่า layout_type จะเป็นอะไร',
+      'ตอน `layout_type = "ordered"` เท่านั้น',
+      'ตอน `layout_type = "free"` เท่านั้น',
+      'ไม่มีทางเลย ตำแหน่ง widget คุมผ่าน Terraform ไม่ได้',
+    ],
+    answer: 2,
+  },
+]
+
+<Quiz client:visible id="production-and-ecosystem/datadog-as-code-with-terraform" questions={quizTerraformTh} />
+
+<ProgressTracker client:visible id="production-and-ecosystem/datadog-as-code-with-terraform" />

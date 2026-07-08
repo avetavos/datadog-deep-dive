@@ -1,0 +1,122 @@
+---
+title: 'Composite Monitors and Notification Workflows'
+description: 'How composite monitors combine existing monitors with boolean logic to cut noise, how @-mention notification templating and escalation_message route and escalate alerts, and how Downtimes mute without disabling evaluation.'
+sidebar:
+  order: 2
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The idea in one sentence
+
+A **composite monitor** combines two or more existing monitors with boolean logic so you can alert on a *combination* of conditions instead of any single monitor firing in isolation, and once something does need to notify someone, `@`-mentions and `escalation_message` control exactly who hears about it and when that widens.
+
+## Composite monitors: alert on combinations, not single signals
+
+A composite monitor references the IDs of existing monitors and combines their trigger states with boolean operators — AND (`&&`), OR (`||`), NOT (`!`). The practical payoff is noise reduction: instead of paging on every monitor that fires, you page only when a *specific combination* of states is true.
+
+```json
+{
+  "name": "payments-api error rate (composite)",
+  "type": "composite",
+  "query": "111111 && !222222",
+  "message": "Error rate is elevated on payments-api and the upstream-dependency monitor is healthy, so this looks like our own issue."
+}
+```
+
+Here `111111` is the error-rate monitor's ID and `222222` is the upstream-dependency monitor's ID. The formula fires only when `111111` is alerting **and** `222222` is **not** alerting. If both are alerting at the same time, the composite stays quiet — the likely story is that the real problem is upstream, and the upstream monitor itself will already be paging whoever owns that dependency.
+
+## Routing notifications with `@`-mentions
+
+A monitor's `message` field carries `@`-mentions directly in its text: `@username` for an individual, `@slack-channel-name` for a connected Slack channel, `@pagerduty-service-name` for a connected PagerDuty service. Each of these has to be set up as an integration in Datadog first — the handle in the message is what routes the notification once that connection exists.
+
+```json
+{
+  "message": "@here Error rate is elevated on payments-api.\n@slack-payments-oncall @pagerduty-payments-critical"
+}
+```
+
+## `escalation_message`: a different message for re-notification
+
+If a monitor stays triggered, `renotify_interval` (in minutes) makes it notify again periodically instead of notifying only once. `escalation_message` is a separate field that lets that re-notification carry **different text** than the original alert — commonly used to pull in a wider on-call escalation the longer the problem stays unresolved.
+
+```json
+{
+  "options": {
+    "renotify_interval": 15
+  },
+  "message": "@slack-payments-oncall Error rate is elevated on payments-api.",
+  "escalation_message": "@pagerduty-payments-escalation Still broken after 15 minutes, escalating to the secondary on-call."
+}
+```
+
+The first page goes to the primary Slack channel. If nobody has resolved it fifteen minutes later, the *next* notification goes out with `escalation_message`'s text instead, pulling in PagerDuty's secondary on-call.
+
+## Downtimes: muting without disabling evaluation
+
+A **Downtime** (mute window) silences a monitor's notifications for a known maintenance window without touching its evaluation. The monitor keeps running its query and keeps updating its internal state the whole time — only the outbound notification is suppressed. That matters because status history stays accurate, and notifications resume automatically the moment the Downtime window ends, with no manual re-enabling step.
+
+<Mermaid title="Composite evaluation and escalation flow" code={compositeDiagramEn} />
+
+export const compositeDiagramEn = `flowchart LR
+  A[Monitor A alerting] --> C{Composite formula}
+  B[Monitor B alerting] --> C
+  C -->|A AND NOT B is true| N[Notify via @-mentions]
+  C -->|formula is false| Q[Stay quiet]
+  N --> R{Still triggered after renotify_interval}
+  R -->|yes| E[Send escalation_message]
+  R -->|no| Done[Resolved]`
+
+<Callout title="The one-line takeaway">
+Composite monitors combine other monitors with `&&`/`||`/`!` to alert only on a meaningful combination of states, `@`-mentions in a monitor's `message` route notifications to people, Slack channels, or PagerDuty services, `escalation_message` sends different text on re-notification to widen the escalation, and a Downtime mutes notifications for a maintenance window without stopping evaluation.
+</Callout>
+
+export const quizCompositeMonitorsEn = [
+  {
+    q: 'What does a composite monitor formula like `111111 && !222222` mean?',
+    options: [
+      'Notify if either monitor 111111 or monitor 222222 is alerting',
+      'Notify only if monitor 111111 is alerting and monitor 222222 is not alerting',
+      'Notify only if both monitors are alerting at the same time',
+      'Disable monitor 222222 whenever monitor 111111 fires',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'Why would a team use a composite monitor instead of just alerting on the error-rate monitor by itself?',
+    options: [
+      'To lower the query interval',
+      'To avoid paging when the real cause is an upstream dependency that is already being handled',
+      'Because single monitors cannot have thresholds',
+      'To increase the number of notifications for the same incident',
+    ],
+    answer: 1,
+  },
+  {
+    q: "What is the difference between a monitor's regular `message` and its `escalation_message`?",
+    options: [
+      'There is no difference, they are aliases for the same field',
+      '`escalation_message` replaces `message` permanently after the first notification',
+      '`escalation_message` is sent on re-notification if the monitor stays triggered, typically to pull in a wider on-call escalation',
+      '`escalation_message` is only used by composite monitors',
+    ],
+    answer: 2,
+  },
+  {
+    q: "What happens to a monitor's evaluation while it is inside an active Downtime (mute window)?",
+    options: [
+      'The monitor stops evaluating its query entirely',
+      'The monitor keeps evaluating and its state keeps updating, only outbound notifications are suppressed',
+      'The monitor is permanently disabled until manually re-enabled',
+      'The monitor automatically becomes a composite monitor',
+    ],
+    answer: 1,
+  },
+]
+
+<Quiz client:visible id="monitors-alerting-and-slos/composite-monitors-and-notification-workflows" questions={quizCompositeMonitorsEn} />
+
+<ProgressTracker client:visible id="monitors-alerting-and-slos/composite-monitors-and-notification-workflows" />

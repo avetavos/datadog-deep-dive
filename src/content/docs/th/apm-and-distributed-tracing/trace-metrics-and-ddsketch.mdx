@@ -1,0 +1,115 @@
+---
+title: 'Trace Metrics และ DDSketch'
+description: 'Datadog คำนวณ hit count, error count และ latency percentile จากทุก span ที่มาถึงมันได้ยังไง — ไม่ถูกกระทบจาก ingestion sampling หรือ retention filter — ด้วย distribution metric type ที่ชื่อ DDSketch'
+sidebar:
+  order: 3
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## ไอเดียหลักในหนึ่งประโยค
+
+ไม่ว่า sampling ทั้งสองชั้นในบทที่แล้วจะเป็นยังไง Datadog คำนวณ **trace metrics** — hit count, error count และ latency — อย่างต่อเนื่องจากทุก span ที่มาถึง Agent/Datadog ทำให้ dashboard เรื่อง traffic กับ latency ของคุณยังแม่นยำในเชิงสถิติ แม้ว่า trace แต่ละตัวที่ยัง inspect ได้จะเหลืออยู่แค่เศษเสี้ยวก็ตาม
+
+## Trace metrics: คำนวณจากทุก span อย่างต่อเนื่อง
+
+สำหรับทุก service และ resource Datadog aggregate สามอย่างนี้จาก stream ของ span ที่มาถึงมัน
+
+- **hit count** — มี request/operation เกิดขึ้นกี่ครั้ง
+- **error count** — กี่ครั้งที่ error
+- **latency** — distribution ของเวลาที่ใช้ไป
+
+การ aggregate นี้เกิดขึ้นต่อเนื่องและมาจากทุก span ที่มาถึง Agent/Datadog — มันไม่ได้คำนวณจากการเปิด trace ที่เก็บไว้แล้วมาอ่านซ้ำทีหลัง นี่คือจุดสำคัญที่ต่างจากบทที่แล้ว ingestion-time sampling กับ retention filter ควบคุมว่า **trace เต็มตัวใดตัวหนึ่งโดยเฉพาะ** จะเปิดดูได้ทีหลังหรือไม่ แต่การนับและจับเวลาแบบ aggregate ทำงานจาก span stream เอง โดยไม่ขึ้นกับสอง layer นั้นเลย
+
+## DDSketch: percentile ที่รอดจากการ aggregate
+
+latency ไม่ใช่ตัวเลขเดียว — สิ่งที่คุณสนใจคือ distribution โดยเฉพาะ tail (p95, p99) ไม่ใช่แค่ค่าเฉลี่ย แต่ percentile มีคุณสมบัติที่ยุ่งยาก — เอา percentile จากสอง host มา average กันแล้วได้ percentile รวมที่ถูกต้องไม่ได้ Datadog แก้ปัญหานี้ด้วย **DDSketch** ซึ่งเป็น distribution metric type แบบ sketch ที่ออกแบบมาให้ percentile estimate แม่นยำและ **merge กันได้** ที่ scale ใหญ่
+
+```python
+# DDSketch merge is why percentiles stay accurate across many hosts/processes
+sketch_host_a = DDSketch(relative_accuracy=0.01)
+sketch_host_b = DDSketch(relative_accuracy=0.01)
+# each host's sketch summarizes every observed span latency locally
+merged = sketch_host_a.merge(sketch_host_b)
+p95 = merged.get_quantile_value(0.95)
+```
+
+แต่ละ process หรือ host เก็บ sketch ของตัวเองที่สรุป latency ที่มันสังเกตเห็น sketch จากหลาย host merge กันเป็น sketch เดียว และ percentile ที่ดึงจาก sketch รวมนั้นยังเป็น estimate ที่แม่นยำของ percentile จริงระดับ global — สิ่งที่วิธี average-percentile แบบตรง ๆ ให้คุณไม่ได้
+
+## ทำไมสิ่งนี้ไม่ถูกกระทบจาก sampling แต่การเข้าถึง example trace ถูกกระทบ
+
+นี่คือจุดที่ควรจำให้แม่น **trace metrics และ percentile ที่อิงอยู่บน DDSketch ไม่ถูกกระทบจาก trace sampling หรือ retention filter** ทั้งชั้นที่ 1 (ingestion-time sampling) และชั้นที่ 2 (APM Retention Filters) ไม่แตะ hit count, error count หรือ p50/p95/p99 latency ที่คุณเห็นบนหน้า overview ของ service เลย — ตัวเลขพวกนั้นมาจาก span stream เอง aggregate อย่างต่อเนื่อง
+
+สิ่งที่**ถูกกระทบ**จากทั้งสอง layer คือความสามารถในการเปิด **example trace** ตัวใดตัวหนึ่งโดยเฉพาะ — เช่น request ที่ช้าที่สุดในชั่วโมงที่ผ่านมา หรือ error ตัวหนึ่งของ error type ใดตัวหนึ่ง การหาและเปิด trace ตัวนั้นขึ้นกับว่ามันรอดจาก ingestion-time sampling *และ* retention filter เก็บมันไว้หรือเปล่า
+
+```text
+# Two different questions, two different data paths
+p95 latency for checkout-web        <- DDSketch, from every span reaching Datadog, unaffected by sampling
+"show me one slow example trace"    <- must have been ingested AND retained to open
+```
+
+นี่เป็นเหตุผลตรง ๆ ว่าทำไมคุณถึงเชื่อถือ dashboard เรื่อง latency หรือ error rate ได้ แม้จะตั้ง ingestion sampling rate ต่ำมาก ในขณะที่ยังต้องมี retention filter ที่ออกแบบมาดี (จากบทที่แล้ว) เพื่อรับประกันว่าคุณจะหาและเปิด trace ที่ช้าหรือ error ตัวใดตัวหนึ่งได้จริงตอนที่ต้องการ
+
+<Mermaid title="Aggregate metrics vs. individual trace access" code={traceMetricsDiagramTh} />
+
+export const traceMetricsDiagramTh = `flowchart LR
+  Spans[Every span reaching Agent/Datadog] --> Stats[Trace metrics: hit count, error count, latency]
+  Stats --> Sketch[DDSketch per service/resource]
+  Sketch --> P[p50/p95/p99 dashboards: unaffected by sampling]
+  Spans -->|ingestion-time sampling| L1[Layer 1 gate]
+  L1 -->|retention filters rate/trace_rate| L2[Layer 2 gate]
+  L2 --> Kept[Individual example traces you can open]`
+
+<Callout title="The one-line takeaway">
+trace metrics — hit count, error count และ latency percentile ที่อิงบน DDSketch — คำนวณจากทุก span ที่มาถึง Datadog และ **ไม่ถูกกระทบจาก ingestion sampling หรือ retention filter** สิ่งเดียวที่ขึ้นกับสอง layer นั้นคือความสามารถในการเปิดดู **example trace** ตัวใดตัวหนึ่งโดยเฉพาะ ซึ่งเป็นเหตุผลที่ dashboard ยังเชื่อถือได้แม้ sampling จะดุแค่ไหน
+</Callout>
+
+export const quizTraceMetricsDdsketchTh = [
+  {
+    q: 'สามอย่างที่ Datadog คำนวณต่อเนื่องเป็น trace metrics ของ service/resource คืออะไร',
+    options: [
+      'CPU usage, memory usage, disk usage',
+      'hit count, error count และ latency',
+      'จำนวน manual span, จำนวน auto-instrumented span และ trace_rate',
+      'ingestion rate, retention rate และ sample rate',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'ทำไมถึงใช้ DDSketch สำหรับ latency percentile แทนที่จะ average percentile จากหลาย host ตรง ๆ',
+    options: [
+      'การ average percentile จากหลาย host ให้ percentile รวมที่ไม่ถูกต้อง DDSketch ถูกออกแบบให้ sketch merge กันได้อย่างแม่นยำ',
+      'DDSketch ใช้แค่กับ error count ไม่ใช่ latency',
+      'percentile ไม่ต้อง aggregate ข้าม host',
+      'DDSketch แทนที่ความจำเป็นของ hit count',
+    ],
+    answer: 0,
+  },
+  {
+    q: 'ข้อไหนที่ไม่ถูกกระทบจาก ingestion-time sampling และ retention filter',
+    options: [
+      'ความสามารถในการเปิดและ inspect example trace ตัวใดตัวหนึ่งโดยเฉพาะ',
+      'p95 latency ที่แสดงบนหน้า overview ของ service',
+      'trace ถูก retain ไว้ในระยะยาวหรือไม่',
+      'trace ถูก ingest หรือไม่',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'ทีมหนึ่งตั้ง ingestion sampling rate ดุมากที่ 1% พวกเขายังเชื่อถืออะไรได้',
+    options: [
+      'ไม่มีเลย — dashboard ทุกอันไม่น่าเชื่อถือถ้า ingestion ต่ำกว่า 100%',
+      'เชื่อถือได้แค่ Service Map ไม่ใช่ latency',
+      'hit count, error count และ latency percentile แบบ aggregate เพราะสิ่งเหล่านี้คำนวณจาก span stream โดยไม่ขึ้นกับ sampling',
+      'เชื่อถือได้แค่ trace ที่ match retention filter เท่านั้น',
+    ],
+    answer: 2,
+  },
+]
+
+<Quiz client:visible id="apm-and-distributed-tracing/trace-metrics-and-ddsketch" questions={quizTraceMetricsDdsketchTh} />
+
+<ProgressTracker client:visible id="apm-and-distributed-tracing/trace-metrics-and-ddsketch" />

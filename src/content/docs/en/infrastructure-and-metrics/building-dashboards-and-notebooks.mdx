@@ -1,0 +1,114 @@
+---
+title: 'Building Dashboards and Notebooks'
+description: 'Dashboard widget types, the formula-and-function query model, template variables for filtering, and Notebooks as a lighter-weight way to combine graphs with narrative text.'
+sidebar:
+  order: 4
+---
+
+import Mermaid from '../../../../components/Mermaid.astro';
+import Callout from '../../../../components/Callout.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import ProgressTracker from '../../../../components/ProgressTracker.tsx';
+
+## The idea in one sentence
+
+A Datadog dashboard is a grid of widgets, each built from one or more named queries combined through a **formula**, and made interactive across the whole dashboard with **template variables**.
+
+## Widget types
+
+Three widget types cover the vast majority of dashboards you'll build:
+
+- **timeseries** — a line or bar graph of a metric over time, the default choice for "how has this value trended." Good for `system.cpu.user`, request rate, error count, and so on.
+- **query_value** — a single big number, usually the latest value or an aggregation over a time window, used for at-a-glance KPIs like "current error rate" or "active connections right now."
+- **group** — a container widget that holds other widgets and can be scoped by a tag, letting you repeat the same set of graphs once per value of that tag — for example, one group per `service`, each containing the same timeseries widgets, without manually duplicating them.
+
+## The formula and function model
+
+Every widget query starts by naming a query — conventionally `my_query_1`, `my_query_2`, and so on — which is really just "this metric, filtered by these tags, aggregated this way." The **formula** field is then a small expression that references those named queries by name, which lets you do two things a single raw metric query can't:
+
+1. **Arithmetic between two named queries** — for example, computing an error rate as `my_query_1 / my_query_2 * 100` where `my_query_1` is error count and `my_query_2` is total request count.
+2. **Applying a rollup or anomaly function to one query** — wrapping a single named query in a function like `rollup(my_query_1, "sum", 300)` to force a 5-minute rolling sum, or `anomalies(my_query_1, "basic")` to highlight deviations from an expected band.
+
+In plain-language terms, a widget config for an error-rate timeseries would describe: query `my_query_1` as `sum:myservice.errors.count{env:prod}.as_count()`, query `my_query_2` as `sum:myservice.requests.count{env:prod}.as_count()`, and a formula of `(my_query_1 / my_query_2) * 100`, displayed as a timeseries line. As a short illustrative HCL-like snippet (exact Terraform syntax is covered later in Production & Ecosystem):
+
+```text
+widget "timeseries" {
+  request {
+    query {
+      name  = "my_query_1"
+      query = "sum:myservice.errors.count{env:prod}.as_count()"
+    }
+    query {
+      name  = "my_query_2"
+      query = "sum:myservice.requests.count{env:prod}.as_count()"
+    }
+    formula {
+      formula_expression = "(my_query_1 / my_query_2) * 100"
+    }
+  }
+}
+```
+
+## Template variables
+
+A **template variable** — say `var_1`, defaulting to a tag prefix like `host` — is a dashboard-level filter control that gets substituted into every widget's query at once. Instead of hardcoding `{env:prod}` into every single widget, you define `var_1` bound to the `env` tag, give it a default value, and every widget on the dashboard references `{{var_1}}` in its query scope. Change the dropdown at the top of the dashboard once, and every widget re-filters together. In practice, teams commonly scope a whole dashboard by `env` and `service` this way — one dashboard template, reused across every environment or every service, just by changing the variable selection at the top instead of building a new dashboard each time.
+
+## Notebooks: the lighter-weight alternative
+
+A **Notebook** is a more freeform, document-style way to combine graphs with narrative text — you interleave timeseries and query_value cells with plain markdown paragraphs, in a linear top-to-bottom document rather than a fixed grid. Notebooks are the natural tool for a specific investigation or an incident writeup: "here's the CPU graph during the spike, here's what we changed, here's the graph after the fix, here's our conclusion" — a story with evidence embedded in it, rather than a reusable operational view you'd keep open in a TV dashboard. Dashboards are for ongoing monitoring; Notebooks are for one-time or periodic narrative analysis.
+
+<Mermaid title="From named queries to a filtered dashboard" code={dashboardDiagram} />
+
+export const dashboardDiagram = `flowchart LR
+  A[Named query my_query_1: errors] --> C[Formula: my_query_1 / my_query_2 * 100]
+  B[Named query my_query_2: requests] --> C
+  C --> D[Widget: timeseries / query_value / group]
+  E[Template variable var_1 = env] -->|filters| D
+  D --> F[Dashboard]
+  D --> G[Notebook: graphs + narrative text]`
+
+<Callout title="The one-line takeaway">
+A dashboard widget is built from **named queries** combined through a **formula** (arithmetic between queries, or a rollup/anomaly function on one), filtered dashboard-wide by **template variables** like `var_1` scoped to `env` or `service` — and **Notebooks** give you the same graphs in a linear, narrative document better suited to a one-off investigation or incident writeup.
+</Callout>
+
+export const quizDashboards = [
+  {
+    q: 'Which widget type would you use for a single at-a-glance number like "current active connections"?',
+    options: ['timeseries', 'query_value', 'group', 'notebook'],
+    answer: 1,
+  },
+  {
+    q: 'In the formula-and-function model, what does a formula like `my_query_1 / my_query_2 * 100` do?',
+    options: [
+      'It renames my_query_1 to my_query_2',
+      'It combines two independently named queries with arithmetic, e.g. to compute an error rate',
+      'It is only valid syntax inside Notebooks, not dashboards',
+      'It deletes my_query_2 from the widget',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'What is the purpose of a template variable like var_1 scoped to env?',
+    options: [
+      'It permanently hardcodes one environment into the dashboard',
+      'It lets every widget on the dashboard be filtered together by changing one dropdown',
+      'It is only used for authentication to the dashboard',
+      'It converts timeseries widgets into query_value widgets',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'When would a Notebook be a better fit than a Dashboard?',
+    options: [
+      'When you need a permanent, reusable operational view for ongoing monitoring',
+      'When you need to write up a one-time investigation or incident with graphs interleaved with narrative text',
+      'When you need to configure Metrics without Limits',
+      'When you need to submit a custom metric via DogStatsD',
+    ],
+    answer: 1,
+  },
+]
+
+<Quiz client:visible id="infrastructure-and-metrics/building-dashboards-and-notebooks" questions={quizDashboards} />
+
+<ProgressTracker client:visible id="infrastructure-and-metrics/building-dashboards-and-notebooks" />
