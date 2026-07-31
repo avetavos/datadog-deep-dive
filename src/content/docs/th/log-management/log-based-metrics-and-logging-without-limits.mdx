@@ -38,17 +38,17 @@ log-based metric มีสองรูปแบบที่ต้องรู้
 
 ตัวอย่างนี้นิยาม distribution metric บน attribute `@duration` scope ไปที่ request ที่สำเร็จของ service `web*` แล้ว group ตาม status code log-based metric ถูกคำนวณที่ **10-second granularity** และเก็บไว้ **15 เดือน** — นานกว่า `retention_days` ของ index ส่วนใหญ่มาก และราคาถูกกว่ามาก เพราะ metric เป็น aggregate เล็ก ๆ ไม่ใช่ log body เต็ม ๆ
 
-ผลตอบแทนในทางปฏิบัติคือ คุณตั้ง Exclusion Filter ของ index ให้ drop log `level:debug` ทิ้งทั้งหมดได้ (ประหยัด cost การ index) แล้วยังเก็บ log-based metric แบบ COUNT ของจำนวน debug log ต่อ service ต่อนาทีไว้ได้กว่าปี คุณเสียความสามารถอ่าน log line แต่ละบรรทัดหลังจากมัน age out หรือถูก exclude ไป แต่ไม่เคยเสีย trend หรือ anomaly signal ไปเลย
+ผลตอบแทนในทางปฏิบัติคือ คุณตั้ง Exclusion Filter ของ index ให้ drop log `level:debug` ทิ้งทั้งหมดได้ (ประหยัด cost การ index) แล้วยังเก็บ log-based metric แบบ COUNT ของจำนวน debug log ต่อ service ต่อนาทีไว้ได้กว่าปี คุณเสียความสามารถอ่าน log line แต่ละบรรทัดหลังจาก log พวกนั้น age out หรือถูก exclude ไป แต่ไม่เคยเสีย trend หรือ anomaly signal ไปเลย
 
 ## Log Archive: stream เต็มในราคาถูก ระยะยาว
 
-**Log Archive** ส่ง log stream ที่แทบจะเต็มและไม่ถูก exclude ไปยัง storage ที่คุณเป็นเจ้าของเอง — S3, GCS หรือ Azure Blob — ไม่ว่า Exclusion Filter ของ index ไหนจะทำอะไรอยู่ก็ตาม การ archive เกิดขึ้นเป็นอิสระจากการตัดสินใจเรื่อง indexing ซึ่งเป็นสิ่งที่ทำให้มันเหมาะกับ compliance และ retention ระยะยาว log ตัวหนึ่งถูก exclude จากทุก index ได้ (ถูก ไม่ต้องจ่ายค่า search เต็มราคา) และยังไปลง archive ได้ (ถูก, ระยะยาว, ค้นหาไม่ได้ถ้าไม่ทำขั้นตอนเพิ่ม)
+**Log Archive** ส่ง log stream ที่แทบจะเต็มและไม่ถูก exclude ไปยัง storage ที่คุณเป็นเจ้าของเอง — S3, GCS หรือ Azure Blob — ไม่ว่า Exclusion Filter ของ index ไหนจะทำอะไรอยู่ก็ตาม การ archive เกิดขึ้นเป็นอิสระจากการตัดสินใจเรื่อง indexing นั่นคือสิ่งที่ทำให้ archive เหมาะกับ compliance และ retention ระยะยาว log ตัวหนึ่งถูก exclude จากทุก index ได้ (ถูก ไม่ต้องจ่ายค่า search เต็มราคา) และยังไปลง archive ได้ (ถูก, ระยะยาว, ค้นหาไม่ได้ถ้าไม่ทำขั้นตอนเพิ่ม)
 
-archive ค้นหาใน Logs Explorer ตรง ๆ ไม่ได้ มันคือ cold storage ใน cloud account ของคุณเอง คิดราคาตามอัตราของ cloud storage ของคุณเอง ซึ่งเป็นเหตุผลตรง ๆ ที่ทำให้มันคุ้มค่าพอจะเก็บแทบทุกอย่างไว้เป็นปี ๆ ในจุดที่ full index retention ทำไม่ได้
+archive ค้นหาใน Logs Explorer ตรง ๆ ไม่ได้ เพราะเป็น cold storage ใน cloud account ของคุณเอง คิดราคาตามอัตราของ cloud storage ของคุณเอง นั่นคือเหตุผลตรง ๆ ที่ทำให้ archive คุ้มค่าพอจะเก็บแทบทุกอย่างไว้เป็นปี ๆ ในจุดที่ full index retention ทำไม่ได้
 
 ## Rehydration: re-index ชิ้นส่วนของอดีตชั่วคราว
 
-พอคุณต้องสืบสวนอะไรบางอย่างที่อยู่ใน archive จริง ๆ — เช่น `level:debug` ที่ระเบิดขึ้นรอบ ๆ incident เมื่อสี่เดือนก่อน — คุณใช้ **Rehydration** คือเอาชิ้นส่วนของ archive ที่ scope ด้วยช่วงเวลามา re-index ใหม่ ปกติจะเข้า temporary index เพื่อให้มันค้นหาได้อีกครั้งใน Logs Explorer นานเท่าที่คุณต้องการ Rehydration ถูกออกแบบให้ scope ด้วยช่วงเวลา (และมักด้วย query ด้วย) แทนที่จะ replay archive ทั้งก้อน เพราะการ re-index คือสิ่งที่เสียเงิน — คุณจ่ายเพื่อทำให้ชิ้นส่วนนั้นค้นหาได้อีกครั้ง ไม่ใช่จ่ายเพื่อเก็บมันไว้ เพราะมันนอนอยู่ใน archive อย่างปลอดภัยอยู่แล้ว
+พอคุณต้องสืบสวนอะไรบางอย่างที่อยู่ใน archive จริง ๆ — เช่น `level:debug` ที่ระเบิดขึ้นรอบ ๆ incident เมื่อสี่เดือนก่อน — คุณใช้ **Rehydration** คือเอาชิ้นส่วนของ archive ที่ scope ด้วยช่วงเวลามา re-index ใหม่ ปกติจะเข้า temporary index เพื่อให้ค้นหาได้อีกครั้งใน Logs Explorer นานเท่าที่คุณต้องการ Rehydration ถูกออกแบบให้ scope ด้วยช่วงเวลา (และมักด้วย query ด้วย) แทนที่จะ replay archive ทั้งก้อน เพราะการ re-index คือสิ่งที่เสียเงิน — คุณจ่ายเพื่อทำให้ชิ้นส่วนนั้นค้นหาได้อีกครั้ง ไม่ใช่จ่ายเพื่อเก็บไว้ เพราะนอนอยู่ใน archive อย่างปลอดภัยอยู่แล้ว
 
 <Mermaid title="Ingestion vs. indexing: where each path leads" code={loggingWithoutLimitsDiagramTh} />
 
@@ -61,7 +61,7 @@ export const loggingWithoutLimitsDiagramTh = `flowchart LR
   C -.->|Rehydration: time-scoped| G[Temporary index\\nsearchable again]`
 
 <Callout title="The one-line takeaway">
-**Logging without Limits** หมายถึง ingestion กับ indexing ถูกแยกออกจากกัน — **log-based metric** (COUNT หรือ DISTRIBUTION, 10-second granularity, 15 เดือน) และ **Log Archive** (cloud storage ราคาถูกของคุณเอง) ทั้งคู่ดึงข้อมูลจาก ingest stream เต็ม ๆ ไม่ว่า Exclusion Filter ของ index จะเป็นยังไง และ **Rehydration** ให้คุณ re-index ชิ้นส่วนของ archive ที่ scope ด้วยเวลาชั่วคราว เมื่อต้องการค้นหามันอีกครั้ง
+**Logging without Limits** หมายถึง ingestion กับ indexing ถูกแยกออกจากกัน — **log-based metric** (COUNT หรือ DISTRIBUTION, 10-second granularity, 15 เดือน) และ **Log Archive** (cloud storage ราคาถูกของคุณเอง) ทั้งคู่ดึงข้อมูลจาก ingest stream เต็ม ๆ ไม่ว่า Exclusion Filter ของ index จะเป็นยังไง และ **Rehydration** ให้คุณ re-index ชิ้นส่วนของ archive ที่ scope ด้วยเวลาชั่วคราว เมื่อต้องการค้นหาอีกครั้ง
 </Callout>
 
 export const quizLoggingWithoutLimitsTh = [

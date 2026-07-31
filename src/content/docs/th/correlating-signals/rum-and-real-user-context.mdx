@@ -12,22 +12,22 @@ import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 
 ## ไอเดียหลักในหนึ่งประโยค
 
-RUM เก็บสิ่งที่ผู้ใช้จริงทำในเบราว์เซอร์หรือแอปเป็น structured event และเมื่อมัน propagate trace context เข้าไปใน backend call ที่ action นั้น trigger มันขยายเรื่อง correlation ออกไปอีกหนึ่ง hop เลยจาก backend trace ไปถึงตัวคนที่เป็นต้นเหตุ
+RUM เก็บสิ่งที่ผู้ใช้จริงทำใน browser หรือแอปเป็น structured event และเมื่อ RUM propagate trace context เข้าไปใน backend call ที่ action นั้น trigger ก็ขยาย correlation ออกไปอีกหนึ่ง hop เลยจาก backend trace ไปถึงตัวคนที่เป็นต้นเหตุ
 
 ## RUM เก็บอะไรบ้างจริง ๆ
 
-**Real User Monitoring (RUM)** รันเป็น SDK อยู่ในเบราว์เซอร์หรือแอปมือถือเอง ไม่ได้รันบน server ของเรา ตอนผู้ใช้จริง interact กับหน้าหรือแอป มันปล่อย structured event type สั้น ๆ ไม่กี่แบบ
+**Real User Monitoring (RUM)** รันเป็น SDK อยู่ใน browser หรือแอปมือถือเอง ไม่ได้รันบน server ของเรา ตอนผู้ใช้จริง interact กับหน้าหรือแอป SDK จะปล่อย structured event type สั้น ๆ ไม่กี่แบบ
 
 - **session** — การเข้ามาเยี่ยมหนึ่งครั้ง ตั้งแต่ต้นจนจบ
 - **view** — หน้า (หรือ screen บนมือถือ) ที่ผู้ใช้ไปถึง
 - **action** — คลิก, แตะ, submit form
 - **error** — JS exception หรือโหลด resource ไม่สำเร็จ ที่ถูกจับฝั่ง client
 
-นี่คือมุมมองที่ต่างจาก synthetic monitoring (เบราว์เซอร์ที่รัน script แกล้งเป็นผู้ใช้ตามตารางเวลา พูดถึงใน module อื่นของคอร์สนี้) RUM คือเบราว์เซอร์จริงของผู้ใช้จริง เกิดขึ้นตามเวลาจริง สะท้อนสภาพ network จริง อุปกรณ์จริง และเส้นทางจริงที่ผู้ใช้เดินผ่าน product — ไม่ใช่เส้นทางในอุดมคติของ script ตัวเดียว
+นี่คือมุมมองที่ต่างจาก synthetic monitoring (browser ที่รัน script แกล้งเป็นผู้ใช้ตามตารางเวลา พูดถึงใน module อื่นของคอร์สนี้) RUM คือ browser จริงของผู้ใช้จริง เกิดขึ้นตามเวลาจริง สะท้อนสภาพ network จริง อุปกรณ์จริง และเส้นทางจริงที่ผู้ใช้เดินผ่าน product — ไม่ใช่เส้นทางในอุดมคติของ script ตัวเดียว
 
 ## จากคลิกหนึ่งครั้งไปถึง backend trace
 
-ลำพัง RUM action หรือ view คือข้อมูลฝั่ง frontend เท่านั้น — มันบอกว่าผู้ใช้คลิก "Pay now" แต่ไม่บอกว่าเกิดอะไรขึ้นบน server หลังจากนั้น payoff ของการ correlate คือ พอตั้งค่า RUM SDK ให้ trace URL ฝั่ง backend ชุดหนึ่งไว้ มันจะแปะ trace context header แบบเดียวกับที่ backend tracer มองหา ลงไปใน XHR/fetch call ที่ส่งออกไป ทำให้ span ของ backend service ที่ถูกสร้างขึ้น ลิงก์กลับไปหา RUM view/action ตัวนั้นได้พอดี
+ลำพัง RUM action หรือ view คือข้อมูลฝั่ง frontend เท่านั้น — บอกได้ว่าผู้ใช้คลิก "Pay now" แต่ไม่บอกว่าเกิดอะไรขึ้นบน server หลังจากนั้น payoff ของการ correlate คือ พอตั้งค่า RUM SDK ให้ trace URL ฝั่ง backend ชุดหนึ่งไว้ จะแปะ trace context header แบบเดียวกับที่ backend tracer มองหา ลงไปใน XHR/fetch call ที่ส่งออกไป ทำให้ span ของ backend service ที่ถูกสร้างขึ้น ลิงก์กลับไปหา RUM view/action ตัวนั้นได้พอดี
 
 ```javascript
 window.DD_RUM.init({
@@ -58,14 +58,14 @@ export const rumContextDiagramTh = `flowchart LR
 `
 
 <Callout title="The one-line takeaway">
-RUM เปลี่ยนสิ่งที่ผู้ใช้จริงทำในเบราว์เซอร์หรือแอปให้กลายเป็น structured event ของ session/view/action/error และเมื่อมัน propagate trace context เข้าไปใน backend call ที่ action พวกนั้น trigger มันขยาย correlation ออกไปอีกหนึ่ง hop จาก backend trace — จาก "span ไหนจัดการ request นี้" ไปถึง "ผู้ใช้จริงคนไหนเป็นต้นเหตุ"
+RUM เปลี่ยนสิ่งที่ผู้ใช้จริงทำใน browser หรือแอปให้กลายเป็น structured event ของ session/view/action/error และเมื่อ RUM propagate trace context เข้าไปใน backend call ที่ action พวกนั้น trigger ก็ขยาย correlation ออกไปอีกหนึ่ง hop จาก backend trace — จาก "span ไหนจัดการ request นี้" ไปถึง "ผู้ใช้จริงคนไหนเป็นต้นเหตุ"
 </Callout>
 
 export const quizRumContextTh = [
   {
     q: 'ข้อแตกต่างหลักระหว่าง RUM กับ synthetic monitoring คืออะไร',
     options: [
-      'RUM เก็บ session ของผู้ใช้จริงจากเบราว์เซอร์/แอปจริง ส่วน synthetic monitoring รัน script เบราว์เซอร์ตามตารางเวลา',
+      'RUM เก็บ session ของผู้ใช้จริงจาก browser/แอปจริง ส่วน synthetic monitoring รัน script browser ตามตารางเวลา',
       'RUM ใช้ได้แค่บนแอปมือถือเท่านั้น',
       'synthetic monitoring เก็บคลิกของผู้ใช้จริง ส่วน RUM ไม่เก็บ',
       'ทั้งสองคือ feature เดียวกันแค่เรียกชื่อต่างกัน'
@@ -95,10 +95,10 @@ export const quizRumContextTh = [
   {
     q: 'RUM ขยายเรื่อง correlation ที่ backend trace อย่างเดียวสร้างไว้อย่างไร',
     options: [
-      'มันแทนที่ backend trace ไปเลยทั้งหมด',
-      'มันลิงก์ session/view/action ของผู้ใช้จริงไปถึง backend trace ที่ action นั้นเป็นต้นเหตุ',
-      'มันใช้ได้แค่กับแอปมือถือ ไม่ใช่เบราว์เซอร์',
-      'มันตัดความจำเป็นของ env/service/version triple ทิ้งไป'
+      'แทนที่ backend trace ไปเลยทั้งหมด',
+      'ลิงก์ session/view/action ของผู้ใช้จริงไปถึง backend trace ที่ action นั้นเป็นต้นเหตุ',
+      'ใช้ได้แค่กับแอปมือถือ ไม่ใช่ browser',
+      'ตัดความจำเป็นของ env/service/version triple ทิ้งไป'
     ],
     answer: 1
   }

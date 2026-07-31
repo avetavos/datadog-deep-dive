@@ -12,11 +12,11 @@ import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 
 ## ไอเดียหลักในหนึ่งประโยค
 
-"trace sampling" จริง ๆ แล้วคือ **สอง control ที่แยกกันแล้วต่อกันเป็นชั้น** — อันหนึ่งตัดสินว่าอะไรถูกส่งเข้า Datadog ตั้งแต่แรก อีกอันตัดสินว่าอะไรยัง searchable ได้หลังจากที่มันเข้ามาแล้ว การมองว่ามันเป็น setting เดียวกันคือความผิดพลาดเรื่อง sampling ที่พบบ่อยที่สุดใน APM
+"trace sampling" จริง ๆ แล้วคือ **สอง control ที่แยกกันแล้วต่อกันเป็นชั้น** — อันหนึ่งตัดสินว่าอะไรถูกส่งเข้า Datadog ตั้งแต่แรก อีกอันตัดสินว่าอะไรยัง searchable ได้หลังจากที่เข้ามาแล้ว การมองว่าเป็น setting เดียวกันคือความผิดพลาดเรื่อง sampling ที่พบบ่อยที่สุดใน APM
 
 ## ชั้นที่ 1: ingestion-time sampling
 
-ชั้นนี้อยู่ใน **tracer** (และบางครั้งใน **Agent**) ตอบคำถามเดียวว่า trace ที่ application สร้างขึ้นกี่ % ที่ถูกส่งเข้า Datadog ตั้งแต่แรก มันทำงานก่อนที่ trace ใด ๆ จะออกจาก infrastructure ของคุณด้วยซ้ำ ถ้าตั้ง rate ไว้ที่ `0.2` แปลว่า 80% ของ trace ไม่ถูกส่งเลย — ไม่มีอยู่ใน Datadog ในรูปแบบไหนทั้งสิ้น ไม่ว่าจะ searchable หรือไม่ก็ตาม
+ชั้นนี้อยู่ใน **tracer** (และบางครั้งใน **Agent**) ตอบคำถามเดียวว่า trace ที่ application สร้างขึ้นกี่ % ที่ถูกส่งเข้า Datadog ตั้งแต่แรก ทำงานก่อนที่ trace ใด ๆ จะออกจาก infrastructure ของคุณด้วยซ้ำ ถ้าตั้ง rate ไว้ที่ `0.2` แปลว่า 80% ของ trace ไม่ถูกส่งเลย — ไม่มีอยู่ใน Datadog ในรูปแบบไหนทั้งสิ้น ไม่ว่าจะ searchable หรือไม่ก็ตาม
 
 ```yaml
 # Tracer-side config — controls what even reaches Datadog at all
@@ -49,15 +49,15 @@ retention filter หนึ่งตัวมีปุ่มปรับสอง
 }
 ```
 
-ตัวอย่างนี้บอกว่า สำหรับ span ใดก็ตามที่ match `service:checkout status:error` เก็บ span พวกนั้นไว้ 100% (`rate: 1.0`) และเก็บ trace ทั้งชุดที่มี span แบบนั้นอยู่ไว้ 100% เช่นกัน (`trace_rate: 1.0`) — คุณเลยไม่ได้เก็บแค่ error span เดี่ยว ๆ แต่เก็บ trace ทั้งชุดรอบ ๆ มันไว้ด้วย เพื่อดูว่า request มาถึงจุดนั้นได้ยังไง
+ตัวอย่างนี้บอกว่า สำหรับ span ใดก็ตามที่ match `service:checkout status:error` เก็บ span พวกนั้นไว้ 100% (`rate: 1.0`) และเก็บ trace ทั้งชุดที่มี span แบบนั้นอยู่ไว้ 100% เช่นกัน (`trace_rate: 1.0`) — คุณเลยไม่ได้เก็บแค่ error span เดี่ยว ๆ แต่เก็บ trace ทั้งชุดรอบ ๆ ไว้ด้วย เพื่อดูว่า request มาถึงจุดนั้นได้ยังไง
 
-นอกเหนือจากที่คุณตั้งค่าเอง Datadog ยังรัน **Intelligent Retention Filter** ที่ทำงานตลอดเวลาอยู่แล้ว — มันเก็บสัดส่วนตัวแทนของ trace ทั่วทั้ง traffic ไว้อัตโนมัติ เพื่อให้เห็นภาพสุขภาพของ application โดยรวม แยกจากและเพิ่มเติมจาก retention filter ที่คุณกำหนดเอง
+นอกเหนือจากที่คุณตั้งค่าเอง Datadog ยังรัน **Intelligent Retention Filter** ที่ทำงานตลอดเวลาอยู่แล้ว — โดยเก็บสัดส่วนตัวแทนของ trace ทั่วทั้ง traffic ไว้อัตโนมัติ เพื่อให้เห็นภาพสุขภาพของ application โดยรวม แยกจากและเพิ่มเติมจาก retention filter ที่คุณกำหนดเอง
 
 ## นัยเชิงปฏิบัติ: สองประตู ไม่ใช่ประตูเดียว
 
 ถ้าคุณคิดถึงแค่ "sampling rate ของฉัน" คุณกำลังคิดถึงแค่ชั้นที่ 1 เท่านั้น สิ่งนี้ทิ้งจุดพลาดสองแบบไว้ให้เห็นชัด ๆ
 
-- คุณ **ingest 100%** ของ trace ได้ แต่ยัง **เสีย** trace ที่คุณสนใจจริง ๆ ไปทีหลังได้ ถ้าไม่มี retention filter ตั้งค่าไว้ให้เก็บมัน — ingestion rate สูงไม่ได้แปลว่า retention รับประกันได้
+- คุณ **ingest 100%** ของ trace ได้ แต่ยัง **เสีย** trace ที่คุณสนใจจริง ๆ ไปทีหลังได้ ถ้าไม่มี retention filter ตั้งค่าไว้ให้เก็บ trace พวกนั้น — ingestion rate สูงไม่ได้แปลว่า retention รับประกันได้
 - คุณ **ingest แค่เศษเสี้ยวเล็ก ๆ** ของ traffic ทั้งหมดได้ แต่ยัง **เก็บครบ** trace ที่สำคัญได้ — เช่น retention filter ที่เจาะจงเก็บ error trace ทุกตัว — เพราะ retention filter ทำงานกับสิ่งที่ผ่านชั้นที่ 1 มาแล้ว และ `rate`/`trace_rate` เท่ากับ `1.0` บน query แคบ ๆ เป็นการรับประกันคนละแบบกับ % ingestion โดยรวมของคุณ
 
 สอง layer นี้ถูกออกแบบให้เป็นอิสระจากกัน — ingestion control ต้นทุนและ volume ที่หน้าประตู ส่วน retention filter ควบคุมว่าอะไรจะ searchable ได้ในระยะยาวจากสิ่งที่ผ่านประตูนั้นเข้ามาแล้ว
@@ -74,7 +74,7 @@ export const samplingLayersDiagramTh = `flowchart LR
   IRF --> Searchable`
 
 <Callout title="The one-line takeaway">
-ingestion-time sampling (tracer/Agent) ตัดสินว่าอะไร**ถูกส่ง**เข้า Datadog ตั้งแต่แรก และ APM Retention Filters (ฝั่ง server มี `rate` กับ `trace_rate` แยกอิสระจากกัน) ตัดสินว่าอะไรยัง**searchable**ได้หลังจากนั้น — มันคือสองประตูที่ต่อกันเป็นชั้นแต่อิสระจากกัน ingestion rate สูงไม่รับประกัน retention และ ingestion rate ต่ำก็ไม่ได้ขวางไม่ให้ retain trace ที่สำคัญได้ครบ
+ingestion-time sampling (tracer/Agent) ตัดสินว่าอะไร**ถูกส่ง**เข้า Datadog ตั้งแต่แรก และ APM Retention Filters (ฝั่ง server มี `rate` กับ `trace_rate` แยกอิสระจากกัน) ตัดสินว่าอะไรยัง**searchable**ได้หลังจากนั้น — เป็นสองประตูที่ต่อกันเป็นชั้นแต่อิสระจากกัน ingestion rate สูงไม่รับประกัน retention และ ingestion rate ต่ำก็ไม่ได้ขวางไม่ให้ retain trace ที่สำคัญได้ครบ
 </Callout>
 
 export const quizIngestionRetentionTh = [
@@ -101,10 +101,10 @@ export const quizIngestionRetentionTh = [
   {
     q: 'trace ตัวหนึ่งถูก ingestion-time sampling ทิ้งไปก่อนถึง Datadog เกิดอะไรขึ้นต่อ',
     options: [
-      'Intelligent Retention Filter ยังกู้มันกลับมาได้',
-      'retention filter ที่ตั้ง `trace_rate: 1.0` ยังกู้มันกลับมาได้',
-      'ไม่มีอะไรกู้มันกลับมาได้ — มันไม่เคยถูก ingest เลย retention filter จึงไม่มีทางเห็นมัน',
-      'มันถูกเก็บไว้ใน archive ราคาถูกเพื่อดึงกลับมาทีหลัง',
+      'Intelligent Retention Filter ยังกู้ trace กลับมาได้',
+      'retention filter ที่ตั้ง `trace_rate: 1.0` ยังกู้ trace กลับมาได้',
+      'ไม่มีอะไรกู้ trace กลับมาได้ — ไม่เคยถูก ingest เลย retention filter จึงไม่มีทางเห็น',
+      'ถูกเก็บไว้ใน archive ราคาถูกเพื่อดึงกลับมาทีหลัง',
     ],
     answer: 2,
   },

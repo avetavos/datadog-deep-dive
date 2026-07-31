@@ -16,9 +16,9 @@ Terraform Datadog provider ตัวทางการ ทำให้คุณ 
 
 ## ทำไมต้องจัดการ Datadog เป็น code
 
-คลิกประกอบ monitor ใน UI ครั้งแรกมันเร็วดี ปัญหาจะโผล่มาตอนครั้งที่สอง — คุณต้องการ monitor ตัวเดียวกันใน staging, dashboard ตัวเดียวกันใน region ใหม่ หรือต้องรู้ให้ได้ว่า threshold ที่เปลี่ยนไปเมื่อเดือนก่อนคืออะไรและทำไม config ที่ประกอบผ่าน UI ไม่มี diff ไม่มีขั้นตอน review และไม่มี single source of truth — สองคนอาจเข้าใจ threshold ของ monitor ไม่ตรงกันแบบเงียบ ๆ แล้วไม่มีอะไรจับได้เลย
+คลิกประกอบ monitor ใน UI ครั้งแรกก็เร็วดี ปัญหาจะโผล่มาตอนครั้งที่สอง — คุณต้องการ monitor ตัวเดียวกันใน staging, dashboard ตัวเดียวกันใน region ใหม่ หรือต้องรู้ให้ได้ว่า threshold ที่เปลี่ยนไปเมื่อเดือนก่อนคืออะไรและทำไม config ที่ประกอบผ่าน UI ไม่มี diff ไม่มีขั้นตอน review และไม่มี single source of truth — สองคนอาจเข้าใจ threshold ของ monitor ไม่ตรงกันแบบเงียบ ๆ แล้วไม่มีอะไรจับได้เลย
 
-การจัดการ monitor, dashboard และ SLO ผ่าน Terraform Datadog provider เปลี่ยนทุกอย่างนี้ให้เป็น code change — มันอยู่ใน repository, ถูก review ผ่าน pull request เหมือน change อื่น ๆ ที่ลง production และ module เดียวกันนำไป instantiate ซ้ำได้ทั้ง `prod`, `staging` และทุก service ใหม่ที่เพิ่มเข้ามา แค่เปลี่ยน variable แทนที่จะคลิก wizard ใหม่ทุกครั้ง
+การจัดการ monitor, dashboard และ SLO ผ่าน Terraform Datadog provider เปลี่ยนทุกอย่างนี้ให้เป็น code change — config อยู่ใน repository, ถูก review ผ่าน pull request เหมือน change อื่น ๆ ที่ลง production และ module เดียวกันนำไป instantiate ซ้ำได้ทั้ง `prod`, `staging` และทุก service ใหม่ที่เพิ่มเข้ามา แค่เปลี่ยน variable แทนที่จะคลิก wizard ใหม่ทุกครั้ง
 
 ## resource `datadog_monitor` ตัวจริง
 
@@ -117,7 +117,7 @@ export const terraformDiagramTh = `flowchart LR
   G --> H[Reused across prod, staging, new services via variables]`
 
 <Callout title="The one-line takeaway">
-Terraform Datadog provider เปลี่ยน monitor, dashboard และ SLO ให้เป็น code ที่ versioned และ review ได้ — แต่อย่าลืมว่า field `query` ใน `datadog_monitor` ใช้ API query syntax (ไม่ใช่ของ UI query builder) `terraform plan` validate มันโดย default และ `datadog_dashboard_v2` ต้องมี block `widget_layout` ชัดเจนก็ต่อเมื่อ `layout_type = "free"` เท่านั้น
+Terraform Datadog provider เปลี่ยน monitor, dashboard และ SLO ให้เป็น code ที่ versioned และ review ได้ — แต่อย่าลืมว่า field `query` ใน `datadog_monitor` ใช้ API query syntax (ไม่ใช่ของ UI query builder) `terraform plan` validate query นั้นให้โดย default และ `datadog_dashboard_v2` ต้องมี block `widget_layout` ชัดเจนก็ต่อเมื่อ `layout_type = "free"` เท่านั้น
 </Callout>
 
 export const quizTerraformTh = [

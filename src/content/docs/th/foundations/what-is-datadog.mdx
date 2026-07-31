@@ -30,7 +30,7 @@ backend เดียวนั้นคือสิ่งที่ขับเค
 
 ## Agent กับ backend
 
-**Agent** คือซอฟต์แวร์ชิ้นเล็ก ๆ ที่คุณรันอยู่ข้าง infrastructure ของคุณ — บน host, เป็น container หรือเป็น Kubernetes DaemonSet หน้าที่ของมันแคบมาก คือเก็บข้อมูลในเครื่องแล้วส่งเข้า Datadog backend ผ่าน HTTPS มันไม่ได้ render dashboard, ไม่ได้ประเมิน monitor และไม่ได้เก็บ history — ทั้งหมดนั้นอยู่ใน Datadog SaaS backend ซึ่งเป็นเหตุผลที่ Agent เองยังคงเบาและทิ้งแล้วสร้างใหม่ได้ง่าย
+**Agent** คือซอฟต์แวร์ชิ้นเล็ก ๆ ที่คุณรันอยู่ข้าง infrastructure ของคุณ — บน host, เป็น container หรือเป็น Kubernetes DaemonSet หน้าที่ของตัวเองแคบมาก คือเก็บข้อมูลในเครื่องแล้วส่งเข้า Datadog backend ผ่าน HTTPS ไม่ได้ render dashboard, ไม่ได้ประเมิน monitor และไม่ได้เก็บ history — ทั้งหมดนั้นอยู่ใน Datadog SaaS backend นั่นคือเหตุผลที่ Agent เองยังคงเบาและทิ้งแล้วสร้างใหม่ได้ง่าย
 
 <Mermaid title="Where telemetry comes from" code={platformDiagramTh} />
 
@@ -48,7 +48,7 @@ export const platformDiagramTh = `flowchart LR
 
 ## Site กับ region
 
-organization ของ Datadog ไม่ได้ลอยอยู่ทั่วอินเทอร์เน็ต — มันอยู่ใน **site** เดียว (คำที่ Datadog ใช้เรียก region) เช่น `US1`, `US3`, `US5`, `EU1` หรือ `AP1` site ที่คุณอยู่คือตัวกำหนด hostname ที่ Agent กับ API call ของคุณต้องใช้ — เช่น org บน `US1` คุยกับ `api.datadoghq.com` ในขณะที่ org บน `EU1` คุยกับ `api.datadoghq.eu` ถ้าตั้งค่า Agent ให้ชี้ไปที่ intake ของ site ผิด มันจะ authenticate กับ backend คนละตัวไปเลย — นี่คือความผิดพลาดวันแรกที่พบบ่อยที่สุด ควรเช็ค site ของตัวเองให้ชัดเจนแทนที่จะเดาเอา
+organization ของ Datadog ไม่ได้ลอยอยู่ทั่วอินเทอร์เน็ต — แต่อยู่ใน **site** เดียว (คำที่ Datadog ใช้เรียก region) เช่น `US1`, `US3`, `US5`, `EU1` หรือ `AP1` site ที่คุณอยู่คือตัวกำหนด hostname ที่ Agent กับ API call ของคุณต้องใช้ — เช่น org บน `US1` คุยกับ `api.datadoghq.com` ส่วน org บน `EU1` คุยกับ `api.datadoghq.eu` ถ้าตั้งค่า Agent ให้ชี้ไปที่ intake ของ site ผิด จะ authenticate กับ backend คนละตัวไปเลย — นี่คือความผิดพลาดวันแรกที่พบบ่อยที่สุด ควรเช็ค site ของตัวเองให้ชัดเจนแทนที่จะเดาเอา
 
 ```yaml
 # datadog.yaml (Agent main config) — site must match your org
@@ -58,10 +58,10 @@ site: "datadoghq.eu"   # e.g. datadoghq.com (US1), datadoghq.eu (EU1), us3.datad
 
 ## API key เทียบกับ Application key
 
-credential สองแบบนี้ถูกสับสนบ่อยมากเพราะทั้งคู่ก็แค่ string ที่เอาไปแปะที่ไหนสักที่ แต่มันอนุญาตให้ทำคนละอย่างกันโดยสิ้นเชิง
+credential สองแบบนี้ถูกสับสนบ่อยมากเพราะทั้งคู่ก็แค่ string ที่เอาไปแปะที่ไหนสักที่ แต่อนุญาตให้ทำคนละอย่างกันโดยสิ้นเชิง
 
-- **API key** อนุญาตให้ *ส่งข้อมูลเข้ามา* — คือสิ่งที่ Agent ใส่ใน config เพื่อส่ง metric, log และ trace เข้า Datadog มัน scope อยู่ที่ organization ไม่ได้ผูกกับคนใดคนหนึ่ง
-- **Application key** อนุญาตให้ *ทำตัวเป็น user* — มันผูกกับ permission ของ user คนหนึ่งโดยเฉพาะ และใช้เรียก read/management API ของ Datadog (query metric, สร้าง dashboard, จัดการ monitor ผ่าน API หรือ Terraform) ถ้า user คนนั้นถูก deactivate หรือ permission ถูกถอด สิ่งที่ใช้ Application key ของเขาก็เสีย access นั้นไปด้วย
+- **API key** อนุญาตให้ *ส่งข้อมูลเข้ามา* — คือสิ่งที่ Agent ใส่ใน config เพื่อส่ง metric, log และ trace เข้า Datadog โดย key นี้ scope อยู่ที่ organization ไม่ได้ผูกกับคนใดคนหนึ่ง
+- **Application key** อนุญาตให้ *ทำตัวเป็น user* — key นี้ผูกกับ permission ของ user คนหนึ่งโดยเฉพาะ และใช้เรียก read/management API ของ Datadog (query metric, สร้าง dashboard, จัดการ monitor ผ่าน API หรือ Terraform) ถ้า user คนนั้นถูก deactivate หรือ permission ถูกถอด สิ่งที่ใช้ Application key ของเขาก็เสีย access นั้นไปด้วย
 
 กฎง่าย ๆ — ถ้ากำลังตั้งค่าอะไรบางอย่างให้ *ส่ง* ข้อมูลเข้า Datadog ต้องใช้ API key ถ้ากำลังเขียน script หรือ Terraform provider ที่ต้อง *อ่านหรือจัดการ* resource ของ Datadog แทน user คนหนึ่ง ต้องใช้ Application key คู่กับ API key
 

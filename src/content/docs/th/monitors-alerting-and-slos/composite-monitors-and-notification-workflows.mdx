@@ -12,11 +12,11 @@ import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 
 ## ไอเดียหลักในหนึ่งประโยค
 
-**composite monitor** รวม monitor ที่มีอยู่แล้วตั้งแต่สองตัวขึ้นไปเข้าด้วยกันด้วย boolean logic เพื่อให้ alert ได้จาก *ชุดผสม* ของเงื่อนไข แทนที่จะ alert ทุกครั้งที่ monitor ตัวใดตัวหนึ่ง fire เดี่ยว ๆ และเมื่อถึงจุดที่ต้อง notify ใครสักคนจริง ๆ `@`-mention กับ `escalation_message` คือตัวควบคุมว่าใครจะได้ยินและมันจะขยายวงเมื่อไหร่
+**composite monitor** รวม monitor ที่มีอยู่แล้วตั้งแต่สองตัวขึ้นไปเข้าด้วยกันด้วย boolean logic เพื่อให้ alert ได้จาก *ชุดผสม* ของเงื่อนไข แทนที่จะ alert ทุกครั้งที่ monitor ตัวใดตัวหนึ่ง fire เดี่ยว ๆ และเมื่อถึงจุดที่ต้อง notify ใครสักคนจริง ๆ `@`-mention กับ `escalation_message` คือตัวควบคุมว่าใครจะได้ยินและจะขยายวงเมื่อไหร่
 
 ## Composite monitor: alert จากชุดผสม ไม่ใช่สัญญาณเดี่ยว
 
-composite monitor อ้างอิง ID ของ monitor ที่มีอยู่แล้ว แล้วรวม trigger state ของมันด้วย boolean operator — AND (`&&`), OR (`||`), NOT (`!`) ผลลัพธ์ทางปฏิบัติคือลด noise ลง แทนที่จะ page ทุกครั้งที่มี monitor ไหน fire จะ page เฉพาะตอนที่ *ชุดผสมของ state* ตรงตามที่กำหนดเท่านั้น
+composite monitor อ้างอิง ID ของ monitor ที่มีอยู่แล้ว แล้วรวม trigger state ของตัวเองด้วย boolean operator — AND (`&&`), OR (`||`), NOT (`!`) ผลลัพธ์ทางปฏิบัติคือลด noise ลง แทนที่จะ page ทุกครั้งที่มี monitor ไหน fire จะ page เฉพาะตอนที่ *ชุดผสมของ state* ตรงตามที่กำหนดเท่านั้น
 
 ```json
 {
@@ -41,7 +41,7 @@ composite monitor อ้างอิง ID ของ monitor ที่มีอ�
 
 ## `escalation_message`: message อีกแบบสำหรับ re-notification
 
-ถ้า monitor ยังค้าง trigger อยู่ `renotify_interval` (หน่วยเป็นนาที) จะทำให้มัน notify ซ้ำเป็นระยะแทนที่จะ notify แค่ครั้งเดียว `escalation_message` เป็นฟิลด์แยกที่ให้ re-notification รอบนั้นใช้ข้อความ **ต่างจากเดิม** ได้ ส่วนใหญ่ใช้เพื่อดึง on-call escalation วงกว้างขึ้นเมื่อปัญหายังไม่ถูกแก้นานขึ้นเรื่อย ๆ
+ถ้า monitor ยังค้าง trigger อยู่ `renotify_interval` (หน่วยเป็นนาที) จะทำให้ monitor notify ซ้ำเป็นระยะแทนที่จะ notify แค่ครั้งเดียว `escalation_message` เป็นฟิลด์แยกที่ให้ re-notification รอบนั้นใช้ข้อความ **ต่างจากเดิม** ได้ ส่วนใหญ่ใช้เพื่อดึง on-call escalation วงกว้างขึ้นเมื่อปัญหายังไม่ถูกแก้นานขึ้นเรื่อย ๆ
 
 ```json
 {
@@ -57,7 +57,7 @@ page แรกไปที่ Slack channel หลัก ถ้าผ่าน�
 
 ## Downtime: mute โดยไม่ปิด evaluation
 
-**Downtime** (mute window) ปิดเสียง notification ของ monitor สำหรับช่วง maintenance ที่รู้ล่วงหน้า โดยไม่แตะต้อง evaluation เลย monitor ยังรัน query ของมันต่อไปและอัปเดต internal state ตลอดเวลา มีแค่ notification ขาออกเท่านั้นที่ถูกกัน จุดนี้สำคัญเพราะ status history ยังถูกต้องอยู่ และ notification จะกลับมาทำงานเองทันทีที่ Downtime window จบ ไม่ต้องมีขั้นตอน re-enable ด้วยมือ
+**Downtime** (mute window) ปิดเสียง notification ของ monitor สำหรับช่วง maintenance ที่รู้ล่วงหน้า โดยไม่แตะต้อง evaluation เลย monitor ยังรัน query ของตัวเองต่อไปและอัปเดต internal state ตลอดเวลา มีแค่ notification ขาออกเท่านั้นที่ถูกกัน จุดนี้สำคัญเพราะ status history ยังถูกต้องอยู่ และ notification จะกลับมาทำงานเองทันทีที่ Downtime window จบ ไม่ต้องมีขั้นตอน re-enable ด้วยมือ
 
 <Mermaid title="Composite evaluation and escalation flow" code={compositeDiagramTh} />
 
@@ -108,7 +108,7 @@ export const quizCompositeMonitorsTh = [
   {
     q: 'evaluation ของ monitor เป็นอย่างไรระหว่างที่อยู่ใน Downtime (mute window) ที่กำลัง active',
     options: [
-      'monitor หยุดประเมิน query ของมันไปเลย',
+      'monitor หยุดประเมิน query ของตัวเองไปเลย',
       'monitor ยังประเมินต่อและอัปเดต state ต่อไปตามปกติ มีแค่ notification ขาออกเท่านั้นที่ถูกกัน',
       'monitor ถูกปิดถาวรจนกว่าจะ re-enable ด้วยมือ',
       'monitor กลายเป็น composite monitor โดยอัตโนมัติ',

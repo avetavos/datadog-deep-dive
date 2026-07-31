@@ -54,7 +54,7 @@ label คือ single source of truth downward API สะท้อน label ก
 ## สามผู้ใช้ identity เดียวกัน
 
 - **infrastructure/container metric ของ Agent** — autodiscovery ติด tag ให้ container/infra metric ตรงจาก label ของ pod เอง metric อย่าง CPU, memory, request rate ของ pod `checkout-service` เลยพก `env`, `service`, `version` ไปด้วยโดยไม่ต้องตั้งค่าแยก
-- **tracer initialization สำหรับ APM** — `dd-trace` อ่าน `DD_ENV`, `DD_SERVICE` และ `DD_VERSION` จาก environment ให้อัตโนมัติ span ทุกอันที่มันสร้างเลยติด triple เดียวกัน
+- **tracer initialization สำหรับ APM** — `dd-trace` อ่าน `DD_ENV`, `DD_SERVICE` และ `DD_VERSION` จาก environment ให้อัตโนมัติ span ทุกอันที่สร้างเลยติด triple เดียวกัน
 
 ```javascript
 // dd-trace picks up DD_ENV, DD_SERVICE, and DD_VERSION from the environment automatically

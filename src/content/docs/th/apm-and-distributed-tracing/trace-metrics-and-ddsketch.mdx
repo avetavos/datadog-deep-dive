@@ -1,6 +1,6 @@
 ---
 title: 'Trace Metrics และ DDSketch'
-description: 'Datadog คำนวณ hit count, error count และ latency percentile จากทุก span ที่มาถึงมันได้ยังไง — ไม่ถูกกระทบจาก ingestion sampling หรือ retention filter — ด้วย distribution metric type ที่ชื่อ DDSketch'
+description: 'Datadog คำนวณ hit count, error count และ latency percentile จากทุก span ที่ไหลเข้ามาได้ยังไง — ไม่ถูกกระทบจาก ingestion sampling หรือ retention filter — ด้วย distribution metric type ที่ชื่อ DDSketch'
 sidebar:
   order: 3
 ---
@@ -16,17 +16,17 @@ import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 
 ## Trace metrics: คำนวณจากทุก span อย่างต่อเนื่อง
 
-สำหรับทุก service และ resource Datadog aggregate สามอย่างนี้จาก stream ของ span ที่มาถึงมัน
+สำหรับทุก service และ resource Datadog aggregate สามอย่างนี้จาก stream ของ span ที่ไหลเข้ามา
 
 - **hit count** — มี request/operation เกิดขึ้นกี่ครั้ง
 - **error count** — กี่ครั้งที่ error
 - **latency** — distribution ของเวลาที่ใช้ไป
 
-การ aggregate นี้เกิดขึ้นต่อเนื่องและมาจากทุก span ที่มาถึง Agent/Datadog — มันไม่ได้คำนวณจากการเปิด trace ที่เก็บไว้แล้วมาอ่านซ้ำทีหลัง นี่คือจุดสำคัญที่ต่างจากบทที่แล้ว ingestion-time sampling กับ retention filter ควบคุมว่า **trace เต็มตัวใดตัวหนึ่งโดยเฉพาะ** จะเปิดดูได้ทีหลังหรือไม่ แต่การนับและจับเวลาแบบ aggregate ทำงานจาก span stream เอง โดยไม่ขึ้นกับสอง layer นั้นเลย
+การ aggregate นี้เกิดขึ้นต่อเนื่องและมาจากทุก span ที่มาถึง Agent/Datadog — ไม่ได้คำนวณจากการเปิด trace ที่เก็บไว้แล้วมาอ่านซ้ำทีหลัง นี่คือจุดสำคัญที่ต่างจากบทที่แล้ว ingestion-time sampling กับ retention filter ควบคุมว่า **trace เต็มตัวใดตัวหนึ่งโดยเฉพาะ** จะเปิดดูได้ทีหลังหรือไม่ แต่การนับและจับเวลาแบบ aggregate ทำงานจาก span stream เอง โดยไม่ขึ้นกับสอง layer นั้นเลย
 
 ## DDSketch: percentile ที่รอดจากการ aggregate
 
-latency ไม่ใช่ตัวเลขเดียว — สิ่งที่คุณสนใจคือ distribution โดยเฉพาะ tail (p95, p99) ไม่ใช่แค่ค่าเฉลี่ย แต่ percentile มีคุณสมบัติที่ยุ่งยาก — เอา percentile จากสอง host มา average กันแล้วได้ percentile รวมที่ถูกต้องไม่ได้ Datadog แก้ปัญหานี้ด้วย **DDSketch** ซึ่งเป็น distribution metric type แบบ sketch ที่ออกแบบมาให้ percentile estimate แม่นยำและ **merge กันได้** ที่ scale ใหญ่
+latency ไม่ใช่ตัวเลขเดียว — สิ่งที่คุณสนใจคือ distribution โดยเฉพาะ tail (p95, p99) ไม่ใช่แค่ค่าเฉลี่ย แต่ percentile มีคุณสมบัติที่ยุ่งยาก — เอา percentile จากสอง host มา average กันแล้วได้ percentile รวมที่ถูกต้องไม่ได้ Datadog แก้ปัญหานี้ด้วย **DDSketch** ที่เป็น distribution metric type แบบ sketch ที่ออกแบบมาให้ percentile estimate แม่นยำและ **merge กันได้** ที่ scale ใหญ่
 
 ```python
 # DDSketch merge is why percentiles stay accurate across many hosts/processes
@@ -37,13 +37,13 @@ merged = sketch_host_a.merge(sketch_host_b)
 p95 = merged.get_quantile_value(0.95)
 ```
 
-แต่ละ process หรือ host เก็บ sketch ของตัวเองที่สรุป latency ที่มันสังเกตเห็น sketch จากหลาย host merge กันเป็น sketch เดียว และ percentile ที่ดึงจาก sketch รวมนั้นยังเป็น estimate ที่แม่นยำของ percentile จริงระดับ global — สิ่งที่วิธี average-percentile แบบตรง ๆ ให้คุณไม่ได้
+แต่ละ process หรือ host เก็บ sketch ของตัวเองที่สรุป latency ที่สังเกตเห็น sketch จากหลาย host merge กันเป็น sketch เดียว และ percentile ที่ดึงจาก sketch รวมนั้นยังเป็น estimate ที่แม่นยำของ percentile จริงระดับ global — สิ่งที่วิธี average-percentile แบบตรง ๆ ให้คุณไม่ได้
 
 ## ทำไมสิ่งนี้ไม่ถูกกระทบจาก sampling แต่การเข้าถึง example trace ถูกกระทบ
 
 นี่คือจุดที่ควรจำให้แม่น **trace metrics และ percentile ที่อิงอยู่บน DDSketch ไม่ถูกกระทบจาก trace sampling หรือ retention filter** ทั้งชั้นที่ 1 (ingestion-time sampling) และชั้นที่ 2 (APM Retention Filters) ไม่แตะ hit count, error count หรือ p50/p95/p99 latency ที่คุณเห็นบนหน้า overview ของ service เลย — ตัวเลขพวกนั้นมาจาก span stream เอง aggregate อย่างต่อเนื่อง
 
-สิ่งที่**ถูกกระทบ**จากทั้งสอง layer คือความสามารถในการเปิด **example trace** ตัวใดตัวหนึ่งโดยเฉพาะ — เช่น request ที่ช้าที่สุดในชั่วโมงที่ผ่านมา หรือ error ตัวหนึ่งของ error type ใดตัวหนึ่ง การหาและเปิด trace ตัวนั้นขึ้นกับว่ามันรอดจาก ingestion-time sampling *และ* retention filter เก็บมันไว้หรือเปล่า
+สิ่งที่**ถูกกระทบ**จากทั้งสอง layer คือความสามารถในการเปิด **example trace** ตัวใดตัวหนึ่งโดยเฉพาะ — เช่น request ที่ช้าที่สุดในชั่วโมงที่ผ่านมา หรือ error ตัวหนึ่งของ error type ใดตัวหนึ่ง การหาและเปิด trace ตัวนั้นขึ้นกับว่ารอดจาก ingestion-time sampling *และ* retention filter เก็บ trace ตัวนั้นไว้หรือเปล่า
 
 ```text
 # Two different questions, two different data paths
@@ -51,7 +51,7 @@ p95 latency for checkout-web        <- DDSketch, from every span reaching Datado
 "show me one slow example trace"    <- must have been ingested AND retained to open
 ```
 
-นี่เป็นเหตุผลตรง ๆ ว่าทำไมคุณถึงเชื่อถือ dashboard เรื่อง latency หรือ error rate ได้ แม้จะตั้ง ingestion sampling rate ต่ำมาก ในขณะที่ยังต้องมี retention filter ที่ออกแบบมาดี (จากบทที่แล้ว) เพื่อรับประกันว่าคุณจะหาและเปิด trace ที่ช้าหรือ error ตัวใดตัวหนึ่งได้จริงตอนที่ต้องการ
+นี่เป็นเหตุผลตรง ๆ ว่าทำไมคุณถึงเชื่อถือ dashboard เรื่อง latency หรือ error rate ได้ แม้จะตั้ง ingestion sampling rate ต่ำมาก ส่วน retention filter ที่ออกแบบมาดี (จากบทที่แล้ว) ยังจำเป็น เพื่อรับประกันว่าคุณจะหาและเปิด trace ที่ช้าหรือ error ตัวใดตัวหนึ่งได้จริงตอนที่ต้องการ
 
 <Mermaid title="Aggregate metrics vs. individual trace access" code={traceMetricsDiagramTh} />
 
@@ -64,7 +64,7 @@ export const traceMetricsDiagramTh = `flowchart LR
   L2 --> Kept[Individual example traces you can open]`
 
 <Callout title="The one-line takeaway">
-trace metrics — hit count, error count และ latency percentile ที่อิงบน DDSketch — คำนวณจากทุก span ที่มาถึง Datadog และ **ไม่ถูกกระทบจาก ingestion sampling หรือ retention filter** สิ่งเดียวที่ขึ้นกับสอง layer นั้นคือความสามารถในการเปิดดู **example trace** ตัวใดตัวหนึ่งโดยเฉพาะ ซึ่งเป็นเหตุผลที่ dashboard ยังเชื่อถือได้แม้ sampling จะดุแค่ไหน
+trace metrics — hit count, error count และ latency percentile ที่อิงบน DDSketch — คำนวณจากทุก span ที่มาถึง Datadog และ **ไม่ถูกกระทบจาก ingestion sampling หรือ retention filter** สิ่งเดียวที่ขึ้นกับสอง layer นั้นคือความสามารถในการเปิดดู **example trace** ตัวใดตัวหนึ่งโดยเฉพาะ นั่นคือเหตุผลที่ dashboard ยังเชื่อถือได้แม้ sampling จะดุแค่ไหน
 </Callout>
 
 export const quizTraceMetricsDdsketchTh = [

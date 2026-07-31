@@ -21,13 +21,13 @@ cost ของ Datadog ขึ้นกับสิ่งที่คุณเล
 - **Custom metric** (Infrastructure & Metrics, Metrics without Limits) — cost มาจาก **tag cardinality** คือจำนวนชุด tag-value ที่แตกต่างกันที่ถูก index และเปิดให้ query ได้สำหรับ metric นั้น คุณ submit metric พร้อม tag cardinality สูงอย่าง `pod_name` ได้แบบต้นทุนต่ำ แล้วจ่ายแค่ view cardinality ต่ำ — เช่น `by service` — ที่คุณเลือก index จริง ๆ
 - **Log** (Log Management, index และ exclusion filter) — cost มาจาก **indexed volume และ retention** คือ log ไหนถูกเขียนลง index บ้าง และเก็บกี่วัน exclusion filter ที่ drop log เสียงดังคุณค่าต่ำก่อนถึง index หรือ index ที่ตั้ง retention สั้นลง คือการตัดสินใจเรื่อง cost ไม่ใช่การตัดสินใจว่าข้อมูลจะหายไป — raw log ยัง archive เก็บไว้ได้อยู่
 
-จุดร่วมของทั้งสอง Datadog แทบไม่เคยคิดเงินแค่เพราะ data โผล่มา มันคิดเงินจากสิ่งที่คุณตัดสินใจว่าคุ้มค่าที่จะเก็บให้ query ได้ และเก็บนานแค่ไหน cost governance จริง ๆ แล้วคือการปฏิบัติกับ "จะ index อะไร ที่ cardinality หรือ retention เท่าไหร่" เป็นการตัดสินใจชัดเจน เหมือนที่ review database schema change
+จุดร่วมของทั้งสอง Datadog แทบไม่เคยคิดเงินแค่เพราะ data โผล่มา แต่คิดเงินจากสิ่งที่คุณตัดสินใจว่าคุ้มค่าที่จะเก็บให้ query ได้ และเก็บนานแค่ไหน cost governance จริง ๆ แล้วคือการปฏิบัติกับ "จะ index อะไร ที่ cardinality หรือ retention เท่าไหร่" เป็นการตัดสินใจชัดเจน เหมือนที่ review database schema change
 
 ## Cloud Cost Management: บิลค่า cloud เป็น metric source
 
-**Cloud Cost Management** เอา philosophy เดียวกันนี้ไปอีกขั้น — มัน ingest billing data ของ cloud provider — เช่น AWS Cost and Usage Reports — แล้ว expose ออกมาเป็น metric source ที่ query ได้ใน Datadog เคียงข้างกับ metric infrastructure และ APM ที่คุณมีอยู่แล้ว query อย่าง `sum:aws.cost.amortized{servicename:ec2} by {account}` ทำงานเหมือน metric query ตัวอื่น ๆ — เอาไป graph ได้ วางบน dashboard เคียงกับ `system.cpu.user` ของ service เดียวกันได้ และที่สำคัญคือ alert กับมันได้ด้วย
+**Cloud Cost Management** เอา philosophy เดียวกันนี้ไปอีกขั้น — โดย ingest billing data ของ cloud provider — เช่น AWS Cost and Usage Reports — แล้ว expose ออกมาเป็น metric source ที่ query ได้ใน Datadog เคียงข้างกับ metric infrastructure และ APM ที่คุณมีอยู่แล้ว query อย่าง `sum:aws.cost.amortized{servicename:ec2} by {account}` ทำงานเหมือน metric query ตัวอื่น ๆ — เอาไป graph ได้ วางบน dashboard เคียงกับ `system.cpu.user` ของ service เดียวกันได้ และที่สำคัญคือ alert กับ metric พวกนี้ได้ด้วย
 
-ส่วนหลังนี่แหละสำคัญ เพราะมันแปลว่า cost spike จับได้ด้วย reflex เดียวกันที่ทีมคุณมีอยู่แล้วสำหรับ latency spike หรือ error-rate spike แทนที่จะไปเจอตอนบิลมาอีกเดือนนึงถัดมา
+ส่วนหลังนี่แหละสำคัญ เพราะแปลว่า cost spike จับได้ด้วย reflex เดียวกันที่ทีมคุณมีอยู่แล้วสำหรับ latency spike หรือ error-rate spike แทนที่จะไปเจอตอนบิลมาอีกเดือนนึงถัดมา
 
 ## cost alert monitor mechanics เดียวกับที่ผ่านมา
 
@@ -54,14 +54,14 @@ resource "datadog_monitor" "cloud_cost_spike" {
 }
 ```
 
-อ่านตัวนี้แบบเดียวกับ resource `datadog_monitor` จากบทก่อนหน้าเลย เพราะมันคือ resource type เดียวกัน แค่ค่า `type` ต่างออกไป
+อ่านตัวนี้แบบเดียวกับ resource `datadog_monitor` จากบทก่อนหน้าเลย เพราะเป็น resource type เดียวกัน แค่ค่า `type` ต่างออกไป
 
 - **`type = "cost alert"`** — monitor type ที่เกิดมาสำหรับ cloud cost data โดยเฉพาะ อยู่คู่กับ `metric alert`, `log alert` และตัวอื่น ๆ
 - **`variables.cloud_cost_query`** — แทนที่จะเป็น metric query ธรรมดา named query (`query1`) ชี้ไปที่ `data_source = "cloud_cost"` แล้วดึง `sum:aws.cost.amortized{servicename:ec2} by {account}` aggregate ด้วย `sum`
 - **`query`** ระดับบนสุดคือ **formula** เหนือ named query นั้น `formula("query1").last("30d").anomaly(direction="both") > 6` มองย้อนหลังไป 30 วันแล้ว flag anomaly ในทิศทางไหนก็ได้
 - **`monitor_thresholds.critical = 6`** — threshold mechanics เดียวกับ `metric alert` เลย แค่ apply กับ anomaly score แทน CPU percentage ดิบ ๆ
 
-ไม่มีอะไรใหม่ในแง่ alerting concept ตรงนี้เลย — คือ monitor primitive จากโมดูลก่อนหน้า (threshold, `monitor_thresholds`, `message` แจ้งเตือน) ไปชี้ที่ data source แบบใหม่ นั่นแหละคือประเด็นทั้งหมด — cost governance ไม่ต้องมี tool แยกมาต่อพ่วง มันเสียบเข้ากับ workflow monitors-as-code เดียวกับบทก่อนหน้าได้เลย
+ไม่มีอะไรใหม่ในแง่ alerting concept ตรงนี้เลย — คือ monitor primitive จากโมดูลก่อนหน้า (threshold, `monitor_thresholds`, `message` แจ้งเตือน) ไปชี้ที่ data source แบบใหม่ นั่นแหละคือประเด็นทั้งหมด — cost governance ไม่ต้องมี tool แยกมาต่อพ่วง เสียบเข้ากับ workflow monitors-as-code เดียวกับบทก่อนหน้าได้เลย
 
 <Mermaid title="From cloud billing data to a cost alert" code={costGovernanceDiagramTh} />
 

@@ -12,7 +12,7 @@ import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 
 ## ไอเดียหลักในหนึ่งประโยค
 
-log จะเข้า Datadog ได้เพราะ Agent ถูกบอกผ่าน `logs:` config block ว่าอ่านจากไหน แล้วติด label `service`/`source` อะไร และพอ log มาถึง **Processing Pipeline** จะ parse กับ enrich log แต่ละตัวก่อนที่มันจะไปถึง index
+log จะเข้า Datadog ได้เพราะ Agent ถูกบอกผ่าน `logs:` config block ว่าอ่านจากไหน แล้วติด label `service`/`source` อะไร และพอ log มาถึง **Processing Pipeline** จะ parse กับ enrich log แต่ละตัวก่อนที่จะไปถึง index
 
 ## บอก Agent ว่าให้มองที่ไหน
 
@@ -28,14 +28,14 @@ logs:
 
 - **`type`** — Agent อ่าน log แบบไหน `file` คือ tail ไฟล์บน disk ส่วนค่าที่ใช้บ่อยอื่น ๆ คือ `tcp`, `udp` และ `docker` สำหรับเก็บ log จาก container
 - **`path`** — log อยู่ที่ไหน สำหรับ type `file` เป็น path ของไฟล์ตรง ๆ ไม่ใช่ query
-- **`service`** — ชื่อ service ที่สร้าง log นี้ขึ้นมา เป็น tag `service` ตัวเดียวกับที่ใช้ทุกที่ใน Datadog (metric, trace) ซึ่งเป็นตัวที่ทำให้ log line, trace และ metric ผูกกลับไปหา deployable unit เดียวกันได้
+- **`service`** — ชื่อ service ที่สร้าง log นี้ขึ้นมา เป็น tag `service` ตัวเดียวกับที่ใช้ทุกที่ใน Datadog (metric, trace) ที่เป็นตัวที่ทำให้ log line, trace และ metric ผูกกลับไปหา deployable unit เดียวกันได้
 - **`source`** — เป็น technology identifier ไม่ใช่ label แบบข้อความอิสระ การตั้ง `source: java` (หรือ `nginx`, `postgresql` ฯลฯ) จะบอก Datadog ว่าให้แนบ **pipeline ที่ built-in เฉพาะ source นั้น** ให้อัตโนมัติ เพราะ Datadog มี Grok parsing rule สำเร็จรูปให้ framework/service ยอดนิยมหลายสิบตัว
 
-พอ Agent อ่าน config นี้ในรอบ reload ถัดไป มันจะเริ่ม tail `/my/app/file.log` แล้วส่งแต่ละบรรทัดไปที่ intake ของ Datadog พร้อม tag `service:payments-api` และ `source:java`
+พอ Agent อ่าน config นี้ในรอบ reload ถัดไป จะเริ่ม tail `/my/app/file.log` แล้วส่งแต่ละบรรทัดไปที่ intake ของ Datadog พร้อม tag `service:payments-api` และ `source:java`
 
 ## Processing Pipeline: parse และ enrich หลัง intake
 
-**Processing Pipeline** คือ list ของ **processor** ที่เรียงลำดับไว้ รันกับ log ทุกตัวที่มาถึง intake และ match query `filter` ของ pipeline นั้น ขั้นตอนนี้เกิด*หลัง*จาก log ออกจาก host มาถึง Datadog แล้ว และ*ก่อน*ที่มันจะถูกเขียนลง index ไหน ๆ — หน้าที่ของมันคือ parse ข้อความที่ไม่มีโครงสร้างให้เป็น attribute ที่มีโครงสร้าง แล้ว enrich log เท่านั้น ไม่ใช่การตัดสินว่า log จะถูกเก็บไว้หรือไม่
+**Processing Pipeline** คือ list ของ **processor** ที่เรียงลำดับไว้ รันกับ log ทุกตัวที่มาถึง intake และ match query `filter` ของ pipeline นั้น ขั้นตอนนี้เกิด*หลัง*จาก log ออกจาก host มาถึง Datadog แล้ว และ*ก่อน*ที่จะถูกเขียนลง index ไหน ๆ — หน้าที่ของตัวเองคือ parse ข้อความที่ไม่มีโครงสร้างให้เป็น attribute ที่มีโครงสร้าง แล้ว enrich log เท่านั้น ไม่ใช่การตัดสินว่า log จะถูกเก็บไว้หรือไม่
 
 pipeline ถูก scope ด้วย filter เช่น `service:my-service` เพื่อให้มีแค่ log จาก service หรือ source ที่ตั้งใจไว้เท่านั้นที่ผ่านเข้ามา คุณมี pipeline หลายตัวทำงานพร้อมกันได้ แต่ละตัว scope ไปคนละ `service` หรือ `source` รวมถึง pipeline built-in ที่ `source: java`, `source: nginx` ฯลฯ แนบให้อัตโนมัติด้วย
 
@@ -67,7 +67,7 @@ export const pipelineFlowDiagramTh = `flowchart LR
   D -->|no match| H`
 
 <Callout title="The one-line takeaway">
-`logs:` config block ของ Agent (`type`, `path`, `service`, `source`) คือตัวที่ทำให้ log ถูกเก็บได้ตั้งแต่แรก และ **Processing Pipeline** — ชุด processor ที่เรียงลำดับและ scope ด้วย `filter` อย่าง Grok Parser, Date Remapper, Status Remapper — parse และ enrich log ทุกตัวที่ match หลัง intake ก่อนถึง index มันไม่ได้ตัดสินว่าอะไรจะถูกเก็บไว้
+`logs:` config block ของ Agent (`type`, `path`, `service`, `source`) คือตัวที่ทำให้ log ถูกเก็บได้ตั้งแต่แรก และ **Processing Pipeline** — ชุด processor ที่เรียงลำดับและ scope ด้วย `filter` อย่าง Grok Parser, Date Remapper, Status Remapper — parse และ enrich log ทุกตัวที่ match หลัง intake ก่อนถึง index ไม่ได้ตัดสินว่าอะไรจะถูกเก็บไว้
 </Callout>
 
 export const quizLogCollectionPipelinesTh = [

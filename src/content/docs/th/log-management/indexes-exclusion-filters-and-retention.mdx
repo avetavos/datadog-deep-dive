@@ -12,11 +12,11 @@ import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 
 ## ไอเดียหลักในหนึ่งประโยค
 
-log ถูก drop หรือ filter ได้ที่สามขั้นตอนที่ต่างกันจริง ๆ — บน host ก่อนที่มันจะออกไปเลย, ที่ quota รายวันของ index หรือด้วย Exclusion Filter ของ index เอง — แต่ละจุดมีผลเรื่อง cost และการกู้คืนที่ต่างกัน จึงห้ามเอามาปนกัน
+log ถูก drop หรือ filter ได้ที่สามขั้นตอนที่ต่างกันจริง ๆ — บน host ก่อนที่จะออกไปเลย, ที่ quota รายวันของ index หรือด้วย Exclusion Filter ของ index เอง — แต่ละจุดมีผลเรื่อง cost และการกู้คืนที่ต่างกัน จึงห้ามเอามาปนกัน
 
 ## ขั้นที่ 1: `exclude_at_match` ฝั่ง Agent
 
-ก่อนที่ log จะออกจาก host เลย ตัว Agent เองสามารถ drop มันได้ผ่าน entry ใน `log_processing_rules` ที่ type เป็น `exclude_at_match` โดย match regex pattern กับ raw log line
+ก่อนที่ log จะออกจาก host เลย ตัว Agent เองก็ drop log ทิ้งได้ผ่าน entry ใน `log_processing_rules` ที่ type เป็น `exclude_at_match` โดย match regex pattern กับ raw log line
 
 ```yaml
 logs:
@@ -30,7 +30,7 @@ logs:
         pattern: 'GET /healthz'
 ```
 
-นี่คือจุด filter ที่ถูกที่สุดเท่าที่จะทำได้ เพราะบรรทัดที่ถูก drop ไม่กิน network, intake หรือ storage เลย — แต่มันก็เป็นการตัดสินใจที่ final เช่นกัน log ที่ถูก exclude ตรงนี้หายไปตลอดกาล ไม่ถูก archive, ไม่ไปถึง Processing Pipeline และกู้คืนทีหลังไม่ได้ ใช้จุดนี้เฉพาะกับบรรทัดที่ไม่มีค่าจริง ๆ (noise ของ health-check, debug spam ที่ไม่ต้องการในรูปแบบไหนเลย) เพราะไม่มี undo
+นี่คือจุด filter ที่ถูกที่สุดเท่าที่จะทำได้ เพราะบรรทัดที่ถูก drop ไม่กิน network, intake หรือ storage เลย — แต่ก็เป็นการตัดสินใจที่ final เช่นกัน log ที่ถูก exclude ตรงนี้หายไปตลอดกาล ไม่ถูก archive, ไม่ไปถึง Processing Pipeline และกู้คืนทีหลังไม่ได้ ใช้จุดนี้เฉพาะกับบรรทัดที่ไม่มีค่าจริง ๆ (noise ของ health-check, debug spam ที่ไม่ต้องการในรูปแบบไหนเลย) เพราะไม่มี undo
 
 ## ขั้นที่ 2: Log Index — `retention_days` กับ `daily_limit`
 
@@ -56,15 +56,15 @@ organization ปกติจะมี index มากกว่าหนึ่ง
 
 **Exclusion Filter** อยู่บน index ตัวใดตัวหนึ่ง และใช้ query แบบ Lucene-style — syntax เดียวกับที่พิมพ์ในช่องค้นหาของ Logs Explorer — เพื่อ sample ออกหรือ drop log ที่ match ไม่ให้ถูกเขียนเข้า *index นั้น* จาก config ด้านบน `{ "name": "exclude-debug", "query": "level:debug" }` หมายความว่า log ที่ match `level:debug` จะไม่ถูกเขียนเข้า index `main`
 
-นี่คือคันโยกหลักที่ใช้ประจำวันเพื่อคุมปริมาณที่ index, ค้นหาได้ และคิดเงินเต็มราคา และมันถูกออกแบบให้ยืดหยุ่นและ final น้อยกว่าการ drop ฝั่ง Agent โดยตั้งใจ:
+นี่คือคันโยกหลักที่ใช้ประจำวันเพื่อคุมปริมาณที่ index, ค้นหาได้ และคิดเงินเต็มราคา และถูกออกแบบให้ยืดหยุ่นและ final น้อยกว่าการ drop ฝั่ง Agent โดยตั้งใจ:
 
-- log ที่ถูก exclude จาก index หนึ่งด้วย Exclusion Filter ของมัน ยังถูก route ไป index *อื่น* ได้ (ที่มี retention หรือ cost ต่างกัน) ถ้า index routing ส่งมันไปทางนั้น
+- log ที่ถูก exclude จาก index หนึ่งด้วย Exclusion Filter ของตัวเอง ยังถูก route ไป index *อื่น* ได้ (ที่มี retention หรือ cost ต่างกัน) ถ้า index routing ส่งไปทางนั้น
 - log ที่ถูก exclude จากทุก index ยังไปถึง Log Archive ได้ ถ้าตั้งค่า archiving ไว้ — บทถัดไปจะพูดเรื่องนี้
 - เพราะการ exclude เกิดที่ index ไม่ใช่บน host จึงเปลี่ยนได้จากส่วนกลางใน Datadog โดยไม่ต้องแตะ config ไฟล์ของ Agent สักตัวเดียว
 
 ## เรียงลำดับทั้งหมดเข้าด้วยกัน
 
-เส้นทางเต็ม ๆ ที่ log เดินทางผ่าน ตั้งแต่ต้นจนจบ คือ **Agent เก็บ** log → rule `exclude_at_match` ฝั่ง Agent (ถ้ามี) อาจ drop log บางตัวก่อนที่มันจะออกจาก host เลย → log ที่รอดมาถึง **intake** → **Processing Pipeline** parse และ enrich log ทุกตัวที่ match filter ของมัน → log มาถึง **Log Index** ซึ่ง **Exclusion Filter** ของมันเองเป็นตัวตัดสินว่าอะไรจะถูก index จริง ค้นหาได้ และคิดเงินเต็มราคา
+เส้นทางเต็ม ๆ ที่ log เดินทางผ่าน ตั้งแต่ต้นจนจบ คือ **Agent เก็บ** log → rule `exclude_at_match` ฝั่ง Agent (ถ้ามี) อาจ drop log บางตัวก่อนที่จะออกจาก host เลย → log ที่รอดมาถึง **intake** → **Processing Pipeline** parse และ enrich log ทุกตัวที่ match filter ของตัวเอง → log มาถึง **Log Index** ซึ่ง **Exclusion Filter** ของตัวเองเป็นตัวตัดสินว่าอะไรจะถูก index จริง ค้นหาได้ และคิดเงินเต็มราคา
 
 <Mermaid title="Where a log can be dropped or filtered" code={indexFilterDiagramTh} />
 
@@ -78,7 +78,7 @@ export const indexFilterDiagramTh = `flowchart LR
   E -->|kept| G["Indexed: searchable\\nfor retention_days, billed at full price"]`
 
 <Callout title="The one-line takeaway">
-สามขั้นตอนที่ต่างกันสามารถ drop หรือ filter log ได้ — `exclude_at_match` ฝั่ง Agent (final, ก่อนที่ log จะออกจาก host เลย), `daily_limit`/`retention_days` ของ index (quota กับช่วงเวลาที่ค้นหาได้ของข้อมูล full-price) และ **Exclusion Filter** ของ index (query แบบ Lucene-style ที่กัน log ไม่ให้เข้า index *นั้น* โดยไม่จำเป็นต้องทำลายมัน) — ถ้าเอาสามอย่างนี้มาปนกันจะจบที่การจ่ายเงินให้ log ที่ไม่จำเป็นต้อง index หรือไม่ก็สูญเสีย log ที่จริง ๆ อยากเก็บใน archive ไปถาวร
+สามขั้นตอนที่ต่างกันสามารถ drop หรือ filter log ได้ — `exclude_at_match` ฝั่ง Agent (final, ก่อนที่ log จะออกจาก host เลย), `daily_limit`/`retention_days` ของ index (quota กับช่วงเวลาที่ค้นหาได้ของข้อมูล full-price) และ **Exclusion Filter** ของ index (query แบบ Lucene-style ที่กัน log ไม่ให้เข้า index *นั้น* โดยไม่ต้องทิ้ง log นั้นไป) — ถ้าเอาสามอย่างนี้มาปนกันจะจบที่การจ่ายเงินให้ log ที่ไม่จำเป็นต้อง index หรือไม่ก็สูญเสีย log ที่จริง ๆ อยากเก็บใน archive ไปถาวร
 </Callout>
 
 export const quizIndexesExclusionFiltersTh = [
@@ -98,7 +98,7 @@ export const quizIndexesExclusionFiltersTh = [
       'log ค้นหาได้กี่วัน',
       'quota GB/วันของ log ที่เขียนเข้า index นั้น',
       'regex pattern ที่ใช้ exclude ฝั่ง Agent',
-      'จำนวน Processing Pipeline ที่แนบกับมันได้',
+      'จำนวน Processing Pipeline ที่แนบเข้ากับ index ได้',
     ],
     answer: 1,
   },
@@ -117,7 +117,7 @@ export const quizIndexesExclusionFiltersTh = [
     options: [
       'Index Exclusion Filter ก่อน แล้วค่อย Agent exclude_at_match แล้วค่อย Processing Pipeline',
       'Processing Pipeline ก่อน แล้วค่อย Agent collection แล้วค่อย index',
-      'Agent collection ก่อน แล้วค่อย exclude_at_match ฝั่ง Agent (ถ้ามี) แล้วค่อย intake แล้วค่อย Processing Pipeline แล้วค่อย index พร้อม Exclusion Filter ของมัน',
+      'Agent collection ก่อน แล้วค่อย exclude_at_match ฝั่ง Agent (ถ้ามี) แล้วค่อย intake แล้วค่อย Processing Pipeline แล้วค่อย index พร้อม Exclusion Filter ของตัวเอง',
       'Intake ก่อน แล้วค่อย Agent collection แล้วค่อย Exclusion Filter แล้วค่อย Processing Pipeline',
     ],
     answer: 2,

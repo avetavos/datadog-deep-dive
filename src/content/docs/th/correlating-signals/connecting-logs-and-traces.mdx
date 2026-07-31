@@ -12,7 +12,7 @@ import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 
 ## ไอเดียหลักในหนึ่งประโยค
 
-tracer รู้อยู่แล้วว่า span ไหน active อยู่ตอนโค้ดกำลังจัดการ request หนึ่ง ดังนั้น **log injection** ก็แค่ tracer ส่ง `trace_id` (กับ `span_id`) ของ span ที่ active นั้นให้ logging library ของเรา ทำให้ log ทุกบรรทัดที่เขียนระหว่าง request นั้นพก identifier ที่ใช้ตามหามันกลับไปได้
+tracer รู้อยู่แล้วว่า span ไหน active อยู่ตอนโค้ดกำลังจัดการ request หนึ่ง ดังนั้น **log injection** ก็แค่ tracer ส่ง `trace_id` (กับ `span_id`) ของ span ที่ active นั้นให้ logging library ของเรา ทำให้ log ทุกบรรทัดที่เขียนระหว่าง request นั้นพก identifier ที่ใช้ตามหา trace ต้นทางกลับไปได้
 
 ## ถ้าไม่มี: log บรรทัดหนึ่งที่ไปต่อไม่ได้
 
@@ -24,7 +24,7 @@ log บรรทัดนี้บอกแค่ว่ามีอะไรพ�
 
 ## กลไกทั่วไป: log integration อ่าน active span
 
-tracer ทุกตัวเก็บ span ที่ active อยู่ไว้ใน context ที่ scope ตาม request — thread-local ถ้า runtime เป็นแบบ threaded, async-local (หรือ continuation-local) ถ้า runtime เป็นแบบ event-loop **log injection** คือ hook เล็ก ๆ ที่เสียบเข้ากับ logging library ของเรา — อาจเป็น formatter, processor หรือ logger method ที่ patch ไว้ — รันทุกครั้งที่มี log record แล้วถาม tracer ว่า "ตอนนี้ span ไหน active อยู่" ถ้ามี มันจะ copy `trace_id` กับ `span_id` ของ span นั้นแปะเข้าไปใน record ก่อนปล่อยออกไป เปิดใช้งานครั้งเดียว แล้ว log statement ทุกจุดที่มีอยู่แล้วในโค้ดเบสได้ประโยชน์ทันที โดยไม่ต้องแตะทีละบรรทัด
+tracer ทุกตัวเก็บ span ที่ active อยู่ไว้ใน context ที่ scope ตาม request — thread-local ถ้า runtime เป็นแบบ threaded, async-local (หรือ continuation-local) ถ้า runtime เป็นแบบ event-loop **log injection** คือ hook เล็ก ๆ ที่เสียบเข้ากับ logging library ของเรา — อาจเป็น formatter, processor หรือ logger method ที่ patch ไว้ — รันทุกครั้งที่มี log record แล้วถาม tracer ว่า "ตอนนี้ span ไหน active อยู่" ถ้ามี จะ copy `trace_id` กับ `span_id` ของ span นั้นแปะเข้าไปใน record ก่อนปล่อยออกไป เปิดใช้งานครั้งเดียว แล้ว log statement ทุกจุดที่มีอยู่แล้วในโค้ดเบสได้ประโยชน์ทันที โดยไม่ต้องแตะทีละบรรทัด
 
 ## ตัวอย่างจริงหนึ่งภาษา: Node.js
 
@@ -52,11 +52,11 @@ flag ตัวนี้คือขั้นตอน integration ทั้ง�
 }
 ```
 
-tracer ของ Datadog รวมฟิลด์ที่ inject เข้าไปเหล่านี้ไว้ใต้ namespace `dd.*` `dd.trace_id` กับ `dd.span_id` คือ key ที่ใช้ pivot — ชี้ไปที่ trace และ span ตัวที่กำลังรันอยู่ตอนบรรทัดนี้ถูกเขียน `dd.env`, `dd.service` และ `dd.version` คือ unified service tagging triple ที่ติดมาด้วย หมายความว่า log บรรทัดเดียวนี้พก identity มากพอที่จะถูกค้นเจอผ่าน structured logging กับ facet ที่สร้างไว้ใน module Log Management ได้ด้วย — มันไม่ได้แค่ correlate กับ trace ได้ แต่ยังเป็น log event ที่ facet ได้เต็มรูปแบบในตัวมันเอง
+tracer ของ Datadog รวมฟิลด์ที่ inject เข้าไปเหล่านี้ไว้ใต้ namespace `dd.*` `dd.trace_id` กับ `dd.span_id` คือ key ที่ใช้ pivot — ชี้ไปที่ trace และ span ตัวที่กำลังรันอยู่ตอนบรรทัดนี้ถูกเขียน `dd.env`, `dd.service` และ `dd.version` คือ unified service tagging triple ที่ติดมาด้วย หมายความว่า log บรรทัดเดียวนี้พก identity มากพอที่จะถูกค้นเจอผ่าน structured logging กับ facet ที่สร้างไว้ใน module Log Management ได้ด้วย — ไม่ได้แค่ correlate กับ trace ได้ แต่ยังเป็น log event ที่ facet ได้เต็มรูปแบบในตัวเอง
 
 ## payoff: คลิกเดียว ไม่ต้องค้นเอง
 
-ก่อนมี log injection log บรรทัดระดับ error หนึ่งบรรทัดอยู่โดดเดี่ยว ไม่มีทางง่าย ๆ ที่จะเห็น request รอบข้างมัน — อะไรเรียก service นี้ service นี้เรียกอะไรต่อ เวลาไปหมดตรงไหน หลังมี log injection เพราะ log พก `dd.trace_id` ไปด้วย Datadog ใส่ปุ่ม pivot "view trace" ลงบน log บรรทัดนั้นใน Logs Explorer ได้เลย คลิกเดียวแล้วไปถึง distributed trace ตัวเป๊ะ ๆ ที่มีทุก span จากทุก service ที่มีส่วนร่วมใน request นั้น ซึ่ง span พวกนั้นไม่เคยเห็น log เลยด้วยซ้ำ
+ก่อนมี log injection log บรรทัดระดับ error หนึ่งบรรทัดอยู่โดดเดี่ยว ไม่มีทางง่าย ๆ ที่จะเห็น request รอบข้าง — อะไรเรียก service นี้ service นี้เรียกอะไรต่อ เวลาไปหมดตรงไหน หลังมี log injection เพราะ log พก `dd.trace_id` ไปด้วย Datadog ใส่ปุ่ม pivot "view trace" ลงบน log บรรทัดนั้นใน Logs Explorer ได้เลย คลิกเดียวแล้วไปถึง distributed trace ตัวเป๊ะ ๆ ที่มีทุก span จากทุก service ที่มีส่วนร่วมใน request นั้น ซึ่ง span พวกนั้นไม่เคยเห็น log เลยด้วยซ้ำ
 
 <Mermaid title="From a log line to its trace" code={logTraceInjectionDiagramTh} />
 
@@ -70,7 +70,7 @@ export const logTraceInjectionDiagramTh = `flowchart LR
 `
 
 <Callout title="The one-line takeaway">
-log injection คือ tracer ส่ง `trace_id`/`span_id` ที่ active อยู่ให้ logging library ของเรา เปิดใช้งานครั้งเดียว (เช่น `log_injection: true` ใน `dd-trace`) แล้วฟิลด์ `dd.*` ที่มันแปะลงบน log ทุกบรรทัดจะเปลี่ยนจาก "error มาแล้วนะ หาเอาเอง" ให้กลายเป็นคลิกเดียวไปถึง distributed trace ตัวที่สร้างมันขึ้นมาจริง ๆ
+log injection คือ tracer ส่ง `trace_id`/`span_id` ที่ active อยู่ให้ logging library ของเรา เปิดใช้งานครั้งเดียว (เช่น `log_injection: true` ใน `dd-trace`) แล้วฟิลด์ `dd.*` ที่แปะลงบน log ทุกบรรทัดจะเปลี่ยนจาก "error มาแล้วนะ หาเอาเอง" ให้กลายเป็นคลิกเดียวไปถึง distributed trace ตัวที่สร้าง log บรรทัดนั้นขึ้นมาจริง ๆ
 </Callout>
 
 export const quizConnectingLogsTracesTh = [
@@ -78,7 +78,7 @@ export const quizConnectingLogsTracesTh = [
     q: 'log injection integration ของ tracer ทำอะไรกับ log record จริง ๆ',
     options: [
       'ลบ log บรรทัดที่ severity ต่ำก่อนปล่อยออกไป',
-      'อ่าน span ที่ active อยู่ตอนนั้น แล้วแปะ trace_id กับ span_id ของมันเข้าไปใน log record',
+      'อ่าน span ที่ active อยู่ตอนนั้น แล้วแปะ trace_id กับ span_id ของตัวเองเข้าไปใน log record',
       'แทนที่ log message ด้วยตัว trace เอง',
       'ส่ง log ตรงไปที่ APM backend แทนที่จะไป Log Management'
     ],
@@ -109,7 +109,7 @@ export const quizConnectingLogsTracesTh = [
     options: [
       'log ถูก index เร็วขึ้น',
       'ลบ trace ทิ้งแล้วเก็บแค่ log ไว้ได้',
-      'จาก log บรรทัดเดียวนั้น pivot ตรงไปที่ distributed trace เต็มรูปแบบที่สร้างมันขึ้นมาได้เลย',
+      'จาก log บรรทัดเดียวนั้น pivot ตรงไปที่ distributed trace เต็มรูปแบบที่สร้าง log บรรทัดนั้นขึ้นมาได้เลย',
       'log บรรทัดนั้นไม่ต้องมี service tag อีกต่อไป'
     ],
     answer: 2

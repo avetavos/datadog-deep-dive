@@ -51,7 +51,7 @@ widget "timeseries" {
 
 ## Template variable
 
-**template variable** — สมมติชื่อ `var_1` default เป็น tag prefix อย่าง `host` — คือ filter control ระดับ dashboard ที่ถูกแทนค่าเข้าไปใน query ของทุก widget พร้อมกัน แทนที่จะ hardcode `{env:prod}` เข้าไปในทุก widget ทีละตัว ให้ define `var_1` bind กับ tag `env` ตั้งค่า default ให้มัน แล้วทุก widget บน dashboard reference `{{var_1}}` ใน query scope ของตัวเอง เปลี่ยน dropdown ด้านบนของ dashboard ครั้งเดียว ทุก widget re-filter พร้อมกันหมด ในทางปฏิบัติทีมส่วนใหญ่ scope ทั้ง dashboard ด้วย `env` และ `service` แบบนี้ — dashboard template เดียว ใช้ซ้ำได้ทุก environment หรือทุก service แค่เปลี่ยน variable selection ด้านบน แทนที่จะสร้าง dashboard ใหม่ทุกครั้ง
+**template variable** — สมมติชื่อ `var_1` default เป็น tag prefix อย่าง `host` — คือ filter control ระดับ dashboard ที่ถูกแทนค่าเข้าไปใน query ของทุก widget พร้อมกัน แทนที่จะ hardcode `{env:prod}` เข้าไปในทุก widget ทีละตัว ให้ define `var_1` bind กับ tag `env` ตั้งค่า default ไว้ แล้วทุก widget บน dashboard reference `{{var_1}}` ใน query scope ของตัวเอง เปลี่ยน dropdown ด้านบนของ dashboard ครั้งเดียว ทุก widget re-filter พร้อมกันหมด ในทางปฏิบัติทีมส่วนใหญ่ scope ทั้ง dashboard ด้วย `env` และ `service` แบบนี้ — dashboard template เดียว ใช้ซ้ำได้ทุก environment หรือทุก service แค่เปลี่ยน variable selection ด้านบน แทนที่จะสร้าง dashboard ใหม่ทุกครั้ง
 
 ## Notebook ทางเลือกที่เบากว่า
 

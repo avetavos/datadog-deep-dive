@@ -95,7 +95,7 @@ Allowed bad time (error budget) = 0.1% x 43200 = 43.2 minutes
 }
 ```
 
-สองแบบนี้แก้คนละปัญหากัน error budget alert บอกว่า "budget กำลังจะหมด" — มันดูที่ยอดสะสมที่ใช้ไปแล้ว เหมาะกับการตัดสินใจว่าสัปดาห์นี้ ship ของที่มีความเสี่ยงได้ปลอดภัยไหม ส่วน burn rate alert บอกว่า "budget กำลังจะหมด **เร็วมาก ตอนนี้เลย**" — มันดูที่ความเร็ว ไม่ใช่ยอดรวม incident ที่ burn เร็วต่อเนื่องสามารถเผา budget 30 วันทั้งก้อนหมดได้ในไม่กี่ชั่วโมง และ burn rate alert จับสัญญาณนั้นได้ตั้งแต่ชั่วโมงแรก ก่อนที่ threshold แบบสะสมของ error budget alert จะข้ามไปด้วยซ้ำ
+สองแบบนี้แก้คนละปัญหากัน error budget alert บอกว่า "budget กำลังจะหมด" — ดูที่ยอดสะสมที่ใช้ไปแล้ว เหมาะกับการตัดสินใจว่าสัปดาห์นี้ ship ของที่มีความเสี่ยงได้ปลอดภัยไหม ส่วน burn rate alert บอกว่า "budget กำลังจะหมด **เร็วมาก ตอนนี้เลย**" — ดูที่ความเร็ว ไม่ใช่ยอดรวม incident ที่ burn เร็วต่อเนื่องสามารถเผา budget 30 วันทั้งก้อนหมดได้ในไม่กี่ชั่วโมง และ burn rate alert จับสัญญาณนั้นได้ตั้งแต่ชั่วโมงแรก ก่อนที่ threshold แบบสะสมของ error budget alert จะข้ามไปด้วยซ้ำ
 
 <Mermaid title="Error budget alert vs. burn rate alert" code={errorBudgetDiagramTh} />
 
@@ -122,7 +122,7 @@ export const quizSlosErrorBudgetsTh = [
     answer: 1,
   },
   {
-    q: 'Time Slice SLO ที่เช็คว่า "p99 latency ต่ำกว่า 300ms ในทุก window 5 นาที" ประเมินเงื่อนไขของมันอย่างไร',
+    q: 'Time Slice SLO ที่เช็คว่า "p99 latency ต่ำกว่า 300ms ในทุก window 5 นาที" ประเมินเงื่อนไขของตัวเองอย่างไร',
     options: [
       'ประเมินครั้งเดียวตอนจบ window 30 วันทั้งหมด',
       'ประเมินต่อเนื่องแบบ real time ไม่มีขอบเขตตายตัว',

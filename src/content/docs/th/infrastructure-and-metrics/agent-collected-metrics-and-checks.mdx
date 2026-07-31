@@ -16,9 +16,9 @@ metric ทุกตัวที่ขึ้นบน host ใน Datadog มา�
 
 ## Built-in system metrics
 
-ทันทีที่ Agent start มันจะรัน **core check** กลุ่มหนึ่งโดยไม่ต้อง config อะไรเลย เช่น `cpu`, `memory`, `disk`, `network`, `io` และอื่น ๆ อีกไม่กี่ตัว สิ่งเหล่านี้คือที่มาของ metric ที่เห็นบน host dashboard ทันทีโดยไม่ต้องติดตั้งอะไรเพิ่ม เช่น `system.cpu.user`, `system.cpu.system`, `system.mem.used`, `system.mem.free`, `system.disk.used`, `system.net.bytes_rcvd` เป็นต้น นี่คือเหตุผลที่ Agent ที่เพิ่งติดตั้งใหม่มี data ไหลเข้ามาแล้วก่อนที่จะไป config integration ตัวไหนเลยด้วยซ้ำ — ภาพรวมระดับ host มีให้อยู่แล้วเสมอ
+ทันทีที่ Agent start จะรัน **core check** กลุ่มหนึ่งโดยไม่ต้อง config อะไรเลย เช่น `cpu`, `memory`, `disk`, `network`, `io` และอื่น ๆ อีกไม่กี่ตัว สิ่งเหล่านี้คือที่มาของ metric ที่เห็นบน host dashboard ทันทีโดยไม่ต้องติดตั้งอะไรเพิ่ม เช่น `system.cpu.user`, `system.cpu.system`, `system.mem.used`, `system.mem.free`, `system.disk.used`, `system.net.bytes_rcvd` เป็นต้น นี่คือเหตุผลที่ Agent ที่เพิ่งติดตั้งใหม่มี data ไหลเข้ามาแล้วก่อนที่จะไป config integration ตัวไหนเลยด้วยซ้ำ — ภาพรวมระดับ host มีให้อยู่แล้วเสมอ
 
-นอกจาก core check แล้ว Agent ยังมาพร้อม **integration** ต่าง ๆ ซึ่งเป็น Python check เฉพาะเทคโนโลยี เช่น `postgres`, `redis`, `nginx`, `kafka` และอีกหลายร้อยตัว integration check จะ active ก็ต่อเมื่อมี config file ให้มัน (ปกติอยู่ที่ `conf.d/<integration>.d/conf.yaml`) แล้ว Agent detect เจอ config นั้นในรอบ check ถัดไป การเปิด integration `postgres` เป็นตัวอย่าง คือสิ่งที่ทำให้ metric อย่าง `postgresql.connections` หรือ `postgresql.rows_returned` เริ่มปรากฏขึ้นมา — ไม่มี auto-discovery ว่า "มี postgres รันอยู่ตรงนี้" ถ้าไม่มี config นั้น
+นอกจาก core check แล้ว Agent ยังมาพร้อม **integration** ต่าง ๆ ที่เป็น Python check เฉพาะเทคโนโลยี เช่น `postgres`, `redis`, `nginx`, `kafka` และอีกหลายร้อยตัว integration check จะ active ก็ต่อเมื่อมี config file ให้ check นั้น (ปกติอยู่ที่ `conf.d/<integration>.d/conf.yaml`) แล้ว Agent detect เจอ config นั้นในรอบ check ถัดไป การเปิด integration `postgres` เป็นตัวอย่าง คือสิ่งที่ทำให้ metric อย่าง `postgresql.connections` หรือ `postgresql.rows_returned` เริ่มปรากฏขึ้นมา — ไม่มี auto-discovery ว่า "มี postgres รันอยู่ตรงนี้" ถ้าไม่มี config นั้น
 
 ## Check API: gauge, count, rate, histogram
 
@@ -49,7 +49,7 @@ class MyServiceCheck(AgentCheck):
 
 ## Collection interval ประมาณ 15 วินาที
 
-โดย default check ทุกตัวที่ Agent รันจะถูก schedule ที่ **collection interval 15 วินาที** — Agent ปลุก check ขึ้นมา มันเรียก `self.gauge(...)` / `self.count(...)` ฯลฯ ตามที่สังเกตเห็นตั้งแต่รอบก่อนหน้า แล้ว Agent flush ค่านั้นขึ้นไปข้างบน interval นี้ config ได้ต่อ check (`min_collection_interval` ใน config ของ check นั้น) แต่ 15 วินาทีคือค่า default ที่ควรสมมติไว้ถ้า config ไม่ได้บอกไว้เป็นอย่างอื่น เรื่องนี้สำคัญโดยเฉพาะกับ `rate` และ `count` เพราะตัวเลขที่ method สองตัวนี้คำนวณหรือรายงานมีความหมายในบริบท "ตั้งแต่ collection interval รอบก่อน" เท่านั้น การเปลี่ยน interval จึงเปลี่ยนวิธีตีความค่าพวกนั้น ไม่ใช่แค่ความถี่ที่มันมาถึง
+โดย default check ทุกตัวที่ Agent รันจะถูก schedule ที่ **collection interval 15 วินาที** — Agent ปลุก check ขึ้นมา check นั้นเรียก `self.gauge(...)` / `self.count(...)` ฯลฯ ตามที่สังเกตเห็นตั้งแต่รอบก่อนหน้า แล้ว Agent flush ค่านั้นขึ้นไปข้างบน interval นี้ config ได้ต่อ check (`min_collection_interval` ใน config ของ check นั้น) แต่ 15 วินาทีคือค่า default ที่ควรสมมติไว้ถ้า config ไม่ได้บอกไว้เป็นอย่างอื่น เรื่องนี้สำคัญโดยเฉพาะกับ `rate` และ `count` เพราะตัวเลขที่ method สองตัวนี้คำนวณหรือรายงานมีความหมายในบริบท "ตั้งแต่ collection interval รอบก่อน" เท่านั้น การเปลี่ยน interval จึงเปลี่ยนวิธีตีความค่าพวกนั้น ไม่ใช่แค่ความถี่ที่มาถึง
 
 <Mermaid title="Where a host's metrics come from" code={agentChecksDiagramTh} />
 

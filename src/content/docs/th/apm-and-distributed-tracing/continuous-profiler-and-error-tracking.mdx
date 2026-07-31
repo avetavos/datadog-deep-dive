@@ -16,9 +16,9 @@ tracing บอกคุณว่า**ตรงไหน**ที่ช้าห�
 
 ## Continuous Profiler: code-level visibility ที่ always-on
 
-Continuous Profiler รันตลอดเวลาบน production ด้วย overhead ต่ำ เก็บ **CPU time, wall-time และ allocation** ระดับโค้ด — ฟังก์ชันและ call stack แต่ละตัว ไม่ใช่แค่ aggregate ระดับ service เพราะมัน always-on แทนที่จะเป็นอะไรที่คุณเปิดทีหลังตอน investigate incident ข้อมูลจึงพร้อมอยู่แล้วตั้งแต่ก่อนคุณต้องการมันด้วยซ้ำ
+Continuous Profiler รันตลอดเวลาบน production ด้วย overhead ต่ำ เก็บ **CPU time, wall-time และ allocation** ระดับโค้ด — ฟังก์ชันและ call stack แต่ละตัว ไม่ใช่แค่ aggregate ระดับ service เพราะ always-on แทนที่จะเป็นอะไรที่คุณเปิดทีหลังตอน investigate incident ข้อมูลจึงพร้อมอยู่แล้วตั้งแต่ก่อนคุณต้องการด้วยซ้ำ
 
-profiler ผูก sample ของมันกลับไปหา service, endpoint และแม้แต่ trace ที่มันเกิดขึ้นด้วย ความเชื่อมโยงนี้เองที่ทำให้มันมีประโยชน์ตอน debug request ที่ช้า — แทนที่จะเดาว่าส่วนไหนของ `checkout-web` ที่แพง คุณกระโดดจาก trace ที่ช้าตรงเข้าไปหา flame graph ว่าฟังก์ชันไหนกำลังรันอยู่และนานแค่ไหนระหว่าง request นั้น
+profiler ผูก sample ของตัวเองกลับไปหา service, endpoint และแม้แต่ trace ที่เกิดขึ้นด้วย ความเชื่อมโยงนี้เองที่ทำให้ profiler มีประโยชน์ตอน debug request ที่ช้า — แทนที่จะเดาว่าส่วนไหนของ `checkout-web` ที่แพง คุณกระโดดจาก trace ที่ช้าตรงเข้าไปหา flame graph ว่าฟังก์ชันไหนกำลังรันอยู่และนานแค่ไหนระหว่าง request นั้น
 
 ```python
 # ddtrace's profiler starts alongside the tracer — no separate instrumentation needed
@@ -47,11 +47,11 @@ Error Tracking เอา error event ที่มาจาก trace และ lo
 }
 ```
 
-สังเกต field `example_trace_ids` — Error Tracking เก็บ link กลับไปหา example trace จริงของ issue นั้นไว้ด้วย คุณจึงกระโดดจาก "issue นี้เกิดไปแล้ว 482 ครั้ง" ตรงเข้าไปหา occurrence จริงหนึ่งตัวเพื่อดู context ของ request รอบ ๆ มันได้
+สังเกต field `example_trace_ids` — Error Tracking เก็บ link กลับไปหา example trace จริงของ issue นั้นไว้ด้วย คุณจึงกระโดดจาก "issue นี้เกิดไปแล้ว 482 ครั้ง" ตรงเข้าไปหา occurrence จริงหนึ่งตัวเพื่อดู context ของ request รอบ ๆ ได้
 
 ## จาก "ตรงไหน" ไปสู่ "ทำไม"
 
-เอาสองเครื่องมือนี้มารวมกันแล้วมันปิดช่องว่างที่ tracing เพียงอย่างเดียวทิ้งไว้
+สองเครื่องมือนี้รวมกันแล้วปิดช่องว่างที่ tracing เพียงอย่างเดียวทิ้งไว้
 
 - **Tracing** — service ไหนและ span ไหนที่ช้าหรือ fail
 - **Continuous Profiler** — ฟังก์ชันไหนระดับโค้ดที่กิน CPU/wall-time/allocation ระหว่าง span ที่ช้านั้น
@@ -96,10 +96,10 @@ export const quizProfilerErrorTrackingTh = [
   {
     q: 'ทำไม Continuous Profiler ถึงถูกเรียกว่า "always-on" แทนที่จะเป็นอะไรที่เปิดใช้ตอน incident',
     options: [
-      'เพราะมัน sample แค่ตอน deploy',
-      'เพราะมันรันตลอดเวลาด้วย overhead ต่ำ ข้อมูลระดับโค้ดจึงพร้อมอยู่แล้วตั้งแต่ก่อนต้อง investigate request ที่ช้า',
-      'เพราะมันแทนที่ความจำเป็นของ tracing ไปเลย',
-      'เพราะมันมีให้ใช้แค่ใน tier เสริมแบบเสียเงินโดยไม่คิด runtime cost',
+      'เพราะ sample แค่ตอน deploy',
+      'เพราะรันตลอดเวลาด้วย overhead ต่ำ ข้อมูลระดับโค้ดจึงพร้อมอยู่แล้วตั้งแต่ก่อนต้อง investigate request ที่ช้า',
+      'เพราะแทนที่ความจำเป็นของ tracing ไปเลย',
+      'เพราะมีให้ใช้แค่ใน tier เสริมแบบเสียเงินโดยไม่คิด runtime cost',
     ],
     answer: 1,
   },

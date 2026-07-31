@@ -12,7 +12,7 @@ import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 
 ## ไอเดียหลักในหนึ่งประโยค
 
-tag คือ `key:value` ธรรมดา แต่มีสาม tag เฉพาะ — `env`, `service` และ `version` — ที่ถูกใส่แบบเดียวกันข้าม metric, log และ trace คือสิ่งที่ทำให้คุณ pivot จาก signal หนึ่งไปอีก signal หนึ่งของ deployable unit เดียวกันได้ ซึ่งเป็นพื้นฐานที่ทั้ง module "correlating signals" ของคอร์สนี้สร้างอยู่บนมัน
+tag คือ `key:value` ธรรมดา แต่มีสาม tag เฉพาะ — `env`, `service` และ `version` — ที่ถูกใส่แบบเดียวกันข้าม metric, log และ trace คือสิ่งที่ทำให้คุณ pivot จาก signal หนึ่งไปอีก signal หนึ่งของ deployable unit เดียวกันได้ ที่เป็นพื้นฐานที่ทั้ง module "correlating signals" ของคอร์สนี้สร้างต่อยอดขึ้นมา
 
 ## พื้นฐานเรื่อง tagging
 
@@ -26,7 +26,7 @@ tag คือสิ่งที่ทำให้ UI ของ Datadog ใช้
 
 ## Cardinality — tag ที่ไม่ควรใส่
 
-ไม่ใช่ทุกข้อมูลที่ควรกลายเป็น tag value Datadog track time series (และ log facet ที่ถูก index) ต่อ combination ของ tag value ที่ไม่ซ้ำกัน ดังนั้น tag ที่ value ต่างกันแทบทุก event — raw user ID, request ID, URL เต็มพร้อม query parameter — จะสร้าง time series หรือ facet value ใหม่แทบทุก data point เรื่องนี้เรียกว่า **high cardinality** และมันแพงสองทาง — มันทำให้บิล custom metric พองขึ้น (แต่ละ combination ของ tag ที่ไม่ซ้ำกันบน metric คือ series ที่ถูกคิดเงินแยกกัน) และมันทำให้ UI *ใช้งานยากขึ้น* เพราะ dropdown filter tag ที่มี distinct value เป็นล้านตัวก็ไม่ใช่สิ่งที่คนใช้จริงในการ narrow ลงได้อีกต่อไป
+ไม่ใช่ทุกข้อมูลที่ควรกลายเป็น tag value Datadog track time series (และ log facet ที่ถูก index) ต่อ combination ของ tag value ที่ไม่ซ้ำกัน ดังนั้น tag ที่ value ต่างกันแทบทุก event — raw user ID, request ID, URL เต็มพร้อม query parameter — จะสร้าง time series หรือ facet value ใหม่แทบทุก data point เรื่องนี้เรียกว่า **high cardinality** และแพงสองทาง — ทำให้บิล custom metric พองขึ้น (แต่ละ combination ของ tag ที่ไม่ซ้ำกันบน metric คือ series ที่ถูกคิดเงินแยกกัน) และทำให้ UI *ใช้งานยากขึ้น* เพราะ dropdown filter tag ที่มี distinct value เป็นล้านตัวก็ไม่ใช่สิ่งที่คนใช้จริงในการ narrow ลงได้อีกต่อไป
 
 กฎง่าย ๆ — tag ด้วยสิ่งที่คุณอยากจะ filter หรือ group จริง ๆ — `env`, `service`, `version`, `region`, `team`, `endpoint` (เป็น route pattern ที่ normalize แล้ว ไม่ใช่ raw path) — ส่วน identifier ที่ไม่ซ้ำกันจริง ๆ (user ID, request ID, order ID) ให้ใส่ใน log message หรือ trace attribute แทนที่จะเป็น tag
 
@@ -38,7 +38,7 @@ tag คือสิ่งที่ทำให้ UI ของ Datadog ใช้
 - **`service`** — ชื่อของ deployable unit (`orders-api`, `checkout-worker`)
 - **`version`** — build/release เฉพาะของ service นั้น (`1.4.2`, git SHA หรืออะไรก็ตามที่ release process ของคุณผลิตออกมา)
 
-เหตุผลที่สามตัวนี้มีอยู่เป็น convention เฉพาะ แทนที่จะเป็นแค่ "tag ที่คุณเพิ่มเองก็ได้" คือเรื่อง correlation — เมื่อ Agent ของ host, tracer ของแอป และ log shipper ทั้งหมดใส่ค่า `env`, `service` และ `version` *เดียวกันเป๊ะ* ให้ telemetry ของแต่ละตัว Datadog เชื่อมมันเข้าด้วยกันได้ คุณเห็น error-rate metric ของ `orders-api` พุ่งขึ้นที่ `env:prod, version:1.4.2` กระโดดตรงไปที่ trace ที่พก tag เดียวกันสามตัวนั้น แล้วจากตรงนั้นไปที่ log บรรทัดที่ถูกส่งออกมาระหว่าง request เหล่านั้น — โดยไม่ต้องมานั่ง correlate timestamp หรือ hostname มือเอง การ pivot นั้นทำงานได้ก็เพราะ *value* ของ tag ไม่ใช่แค่ key ตรงกันเป๊ะข้ามทั้งสาม telemetry type — พิมพ์ผิดแบบ `Prod` เทียบกับ `prod` ทำให้ join พังแบบเงียบ ๆ
+เหตุผลที่สามตัวนี้มีอยู่เป็น convention เฉพาะ แทนที่จะเป็นแค่ "tag ที่คุณเพิ่มเองก็ได้" คือเรื่อง correlation — เมื่อ Agent ของ host, tracer ของแอป และ log shipper ทั้งหมดใส่ค่า `env`, `service` และ `version` *เดียวกันเป๊ะ* ให้ telemetry ของแต่ละตัว Datadog เชื่อม telemetry พวกนั้นเข้าด้วยกันได้ คุณเห็น error-rate metric ของ `orders-api` พุ่งขึ้นที่ `env:prod, version:1.4.2` กระโดดตรงไปที่ trace ที่พก tag เดียวกันสามตัวนั้น แล้วจากตรงนั้นไปที่ log บรรทัดที่ถูกส่งออกมาระหว่าง request เหล่านั้น — โดยไม่ต้องมานั่ง correlate timestamp หรือ hostname มือเอง การ pivot นั้นทำงานได้ก็เพราะ *value* ของ tag ไม่ใช่แค่ key ตรงกันเป๊ะข้ามทั้งสาม telemetry type — พิมพ์ผิดแบบ `Prod` เทียบกับ `prod` ทำให้ join พังแบบเงียบ ๆ
 
 <Mermaid title="Unified service tagging ties telemetry together" code={ustDiagramTh} />
 
@@ -63,7 +63,7 @@ export DD_SERVICE="orders-api"
 export DD_VERSION="1.4.2"
 ```
 
-ใน Kubernetes สิ่งที่เทียบเท่าคือชุด label บน Deployment กับ Pod template — `tags.datadoghq.com/env`, `tags.datadoghq.com/service`, `tags.datadoghq.com/version` — แล้วค่าเดียวกันนั้นถูก re-inject เป็น environment variable `DD_ENV`/`DD_SERVICE`/`DD_VERSION` ผ่าน Kubernetes **downward API** เพื่อให้ tracer ข้างใน container เห็นมันด้วย
+ใน Kubernetes สิ่งที่เทียบเท่าคือชุด label บน Deployment กับ Pod template — `tags.datadoghq.com/env`, `tags.datadoghq.com/service`, `tags.datadoghq.com/version` — แล้วค่าเดียวกันนั้นถูก re-inject เป็น environment variable `DD_ENV`/`DD_SERVICE`/`DD_VERSION` ผ่าน Kubernetes **downward API** เพื่อให้ tracer ข้างใน container เห็นค่าเดียวกันด้วย
 
 ```yaml
 apiVersion: apps/v1
@@ -92,7 +92,7 @@ spec:
               valueFrom: { fieldRef: { fieldPath: "metadata.labels['tags.datadoghq.com/version']" } }
 ```
 
-label อยู่สองที่ (Deployment metadata กับ Pod template metadata) เพราะ Autodiscovery ของ Agent อ่าน pod label โดยตรงสำหรับ tagging ระดับ host/container ในขณะที่การ project ผ่าน downward API คือสิ่งที่เอาค่า *เดียวกัน* เข้าไปใน environment ของ process เองให้ tracer หยิบไปใช้ — source of truth เดียว ผู้ใช้สองฝั่ง
+label อยู่สองที่ (Deployment metadata กับ Pod template metadata) เพราะ Autodiscovery ของ Agent อ่าน pod label โดยตรงสำหรับ tagging ระดับ host/container ส่วนการ project ผ่าน downward API คือสิ่งที่เอาค่า *เดียวกัน* เข้าไปใน environment ของ process เองให้ tracer หยิบไปใช้ — source of truth เดียว ผู้ใช้สองฝั่ง
 
 <Callout title="The one-line takeaway">
 tag คือ `key:value` — รักษา cardinality ของ tag value ให้ต่ำ และเก็บ identifier ที่ไม่ซ้ำกันจริง ๆ ไว้ใน log message หรือ trace attribute แทน **Unified service tagging** (`env`, `service`, `version`) ที่ใส่แบบเดียวกันผ่าน `DD_ENV`/`DD_SERVICE`/`DD_VERSION` หรือ Kubernetes label `tags.datadoghq.com/*` ที่ตรงกัน คือสิ่งที่ทำให้คุณ pivot จาก metric ไปหา trace ไปหา log ของ deployable unit เดียวกันได้ — กลไกที่ module correlation ที่เหลือของคอร์สนี้พึ่งพาอยู่
@@ -103,9 +103,9 @@ export const quizTagsTh = [
     q: 'ทำไม raw user ID ถึงเป็นตัวเลือกที่เสี่ยงสำหรับ tag value',
     options: [
       'tag ใส่ได้แค่ตัวเลขเท่านั้น',
-      'มันสร้าง value ที่แทบไม่ซ้ำกันต่อ event (high cardinality) ทำให้ cost พองและ filter ใช้งานไม่ได้',
+      'สร้าง value ที่แทบไม่ซ้ำกันต่อ event (high cardinality) ทำให้ cost พองและ filter ใช้งานไม่ได้',
       'user ID ส่งเข้า Datadog ไม่ได้เลย',
-      'มันจะไปทับ tag env'
+      'จะไปทับ tag env'
     ],
     answer: 1
   },
@@ -125,7 +125,7 @@ export const quizTagsTh = [
       'เพราะ Datadog เก็บ telemetry ทุก type ไว้ในตารางรวมเดียวโดย default',
       'เพราะ tag value ของ env/service/version เดียวกันถูกใส่แบบเดียวกันข้าม metric, trace และ log ทำให้ Datadog join กันได้',
       'เพราะ Trace Agent เปลี่ยนชื่อ tag ทั้งหมดให้ตรงกันอัตโนมัติ',
-      'เพราะมันทำงานได้แค่ใน host เดียวเท่านั้น'
+      'เพราะทำงานได้แค่ใน host เดียวเท่านั้น'
     ],
     answer: 1
   },

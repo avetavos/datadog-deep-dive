@@ -20,8 +20,8 @@ import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 
 - **Infrastructure List / Host Map** — host หรือ container ทุกตัวที่ Datadog รู้จัก เป็น list ที่ sort ได้ หรือ grid สีสัน (Host Map) ที่ระบายสีตาม metric ไหนก็ได้ (CPU, memory) และ filter ด้วย tag ได้
 - **Metrics Explorer** — สร้าง graph แบบ ad-hoc จาก metric ไหนก็ได้ แบ่งตาม tag โดยไม่ต้อง commit เป็น dashboard ที่ save ไว้ — นี่คือที่ที่ไปตอบคำถาม "ตัวเลขนี้หน้าตาเป็นยังไงตอนนี้จริง ๆ"
-- **Logs Explorer** — ค้นหาและ filter log event ที่ถูก index สร้าง facet จาก log attribute และ pivot ตรงจาก log line ไปยัง trace ของมันได้ถ้าตั้งค่า trace injection ไว้แล้ว
-- **APM Traces / Services** — list Services โชว์ทุกค่า tag `service` ที่ Datadog เห็น trace มา พร้อม latency/error/throughput แบบเห็นภาพรวมทันที ลงลึกเข้าไปใน service ตัวหนึ่งจะเห็น trace ของมันและตำแหน่งของมันใน service map
+- **Logs Explorer** — ค้นหาและ filter log event ที่ถูก index สร้าง facet จาก log attribute และ pivot ตรงจาก log line ไปยัง trace ของตัวเองได้ถ้าตั้งค่า trace injection ไว้แล้ว
+- **APM Traces / Services** — list Services โชว์ทุกค่า tag `service` ที่ Datadog เห็น trace มา พร้อม latency/error/throughput แบบเห็นภาพรวมทันที ลงลึกเข้าไปใน service ตัวหนึ่งจะเห็น trace ของตัวเองและตำแหน่งของตัวเองใน service map
 - **Dashboards** — ชุด widget ที่คัดสรรและ save ไว้ สร้างครั้งเดียวแล้วทั้งทีมใช้ซ้ำได้
 
 <Mermaid title="One tag filter, five views" code={uiDiagramTh} />
@@ -57,7 +57,7 @@ Datadog Dashboard มี layout สองแบบ และเลือกใ�
 }
 ```
 
-ถ้าไม่แน่ใจว่าต้องใช้แบบไหน เริ่มจาก **ordered** ก่อน — คุณขยาย widget หรือแยกมันเป็นสองตัวได้เสมอ และไม่ต้องมานั่งปรับพิกัดมือแค่เพื่อเพิ่ม graph อีกตัว
+ถ้าไม่แน่ใจว่าต้องใช้แบบไหน เริ่มจาก **ordered** ก่อน — คุณขยาย widget หรือแยกเป็นสองตัวได้เสมอ และไม่ต้องมานั่งปรับพิกัดมือแค่เพื่อเพิ่ม graph อีกตัว
 
 ## Notebooks
 
@@ -65,7 +65,7 @@ Datadog Dashboard มี layout สองแบบ และเลือกใ�
 
 ## Tag ชุดเดียวกัน ทุก view
 
-เหตุผลที่ทุกอย่างนี้เชื่อมกันได้ — Infrastructure, Metrics Explorer, Logs Explorer, APM และ Dashboards ทั้งหมดรับ tag filter syntax เดียวกันเป๊ะ — `env:prod`, `service:orders-api`, `version:1.4.2` รวมกับ `AND`/`OR` ตามต้องการ ตั้งค่า unified service tagging ให้ถูกต้อง (บทที่แล้ว) แล้ว filter สามค่าเดียวกันนั้นจะ narrow ทุก view เหล่านี้ลงเหลือ "deployable unit ตัวนี้ environment นี้ release นี้" — ซึ่งเป็นเหตุผลทั้งหมดที่คอร์สนี้ใช้เวลาทั้งบทสอนเรื่อง tagging ก่อนจะแตะ dashboard เลยด้วยซ้ำ
+เหตุผลที่ทุกอย่างนี้เชื่อมกันได้ — Infrastructure, Metrics Explorer, Logs Explorer, APM และ Dashboards ทั้งหมดรับ tag filter syntax เดียวกันเป๊ะ — `env:prod`, `service:orders-api`, `version:1.4.2` รวมกับ `AND`/`OR` ตามต้องการ ตั้งค่า unified service tagging ให้ถูกต้อง (บทที่แล้ว) แล้ว filter สามค่าเดียวกันนั้นจะ narrow ทุก view เหล่านี้ลงเหลือ "deployable unit ตัวนี้ environment นี้ release นี้" — นั่นคือเหตุผลทั้งหมดที่คอร์สนี้ใช้เวลาทั้งบทสอนเรื่อง tagging ก่อนจะแตะ dashboard เลยด้วยซ้ำ
 
 <Callout title="The one-line takeaway">
 Infrastructure List/Host Map, Metrics Explorer, Logs Explorer, APM และ Dashboards คือห้ามุมมองที่ต่างกันของข้อมูลที่ tag เดียวกัน — เลือก dashboard แบบ **ordered** เป็น default (stack กัน ดูแลง่าย) และใช้ **free** เฉพาะตอนต้องการวางตำแหน่งแบบ pixel-exact เอื้อมไปหา **Notebook** เมื่อกำลังเล่าเรื่องแทนที่จะดูแล view แบบ live และ navigate ทั้งห้าตัวด้วย tag filter `env`/`service`/`version` ชุดเดียวกัน

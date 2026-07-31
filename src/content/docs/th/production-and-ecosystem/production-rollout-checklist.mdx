@@ -14,7 +14,7 @@ import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 
 การขึ้น production กับ Datadog คือ checklist ไม่ใช่สวิตช์เดียว และทุก item บนนั้นย้อนกลับไปหา decision ที่คอร์สนี้สอนวิธีตัดสินใจไปแล้ว — ตั้งแต่ tagging ของ Foundations, ผ่าน Infrastructure & Metrics, Log Management, APM & Distributed Tracing, Monitors/Alerting/SLOs ไปจนถึง Correlating Signals
 
-## Tagging และ ownership มาก่อน เพราะทุกอย่างที่เหลือขึ้นกับมัน
+## Tagging และ ownership มาก่อน เพราะทุกอย่างที่เหลือขึ้นกับสองอย่างนี้
 
 - **Unified service tagging สอดคล้องกันทุกที่** `env`, `service` และ `version` ถูก apply แบบเดียวกันทั้งใน Agent configuration, APM tracer setup และทุก `logs:` source — นี่คือ tagging model จากโมดูล Foundations ที่ทำให้ log line, trace และ metric ผูกกลับไปหา deployable unit เดียวกันได้ ถ้ามาแก้หลัง go-live ทุก dashboard กับ monitor ที่สร้างไปในระหว่างนั้นจะพลาด telemetry บางส่วนไปแบบเงียบ ๆ
 - **Service Catalog entry มีอยู่จริงและถูกต้อง** ทุก service ที่จะ page ใครสักคนต้องมี Service Catalog entry ที่มี ownership จริง — ทีมไหน, escalation path ไหน, link ไป runbook ไหน นี่คือสิ่งที่โมดูล Correlating Signals ตั้งไว้ และเป็นตัวตัดสินว่า alert จะไปถึง on-call engineer หรือไปถึง mailing list เก่า ๆ ที่ไม่มีใครอ่าน
@@ -29,19 +29,19 @@ import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 ## APM sampling กับ retention review แยกกันเป็นสอง layer
 
 - **ingestion sampling ตั้งไว้อย่างตั้งใจ** นี่คือ layer ที่ตัดสินว่า trace volume ทั้งหมดเท่าไหร่ที่มาถึง Datadog เลย ควรเป็น rate ที่ตั้งใจ ไม่ใช่ default ที่เกิดขึ้นมาเอง
-- **retention filter review แยกจาก sampling** ยืนยันว่า trace ไหนถูกเก็บระยะยาวไม่ว่า sampling จะเป็นยังไง — เช่น ทุกตัวที่มี error หรือทุกตัวที่เกิน latency threshold — และไม่มีใครในทีมสับสนระหว่าง "sample น้อยลง" กับ "retain น้อยลง" มันคือปุ่มคนละอันจากโมดูล APM & Distributed Tracing และ go-live คือจังหวะเช็คทั้งสองอัน ไม่ใช่แค่อันเดียว
+- **retention filter review แยกจาก sampling** ยืนยันว่า trace ไหนถูกเก็บระยะยาวไม่ว่า sampling จะเป็นยังไง — เช่น ทุกตัวที่มี error หรือทุกตัวที่เกิน latency threshold — และไม่มีใครในทีมสับสนระหว่าง "sample น้อยลง" กับ "retain น้อยลง" เพราะเป็นปุ่มคนละอันจากโมดูล APM & Distributed Tracing และ go-live คือจังหวะเช็คทั้งสองอัน ไม่ใช่แค่อันเดียว
 
 ## Alerting ผูกกับสิ่งที่สำคัญจริง ๆ
 
-- **SLO define ไว้สำหรับ service กลุ่มเล็ก ๆ ที่ business พึ่งพาจริง ๆ** ไม่ใช่ vanity metric ที่ copy ใส่ทุก service เพราะมันเพิ่มง่าย
-- **burn-rate alert ผูกกับ SLO เหล่านั้น** เพื่อให้ทีมได้รับแจ้งเตือนตอนที่ error budget ยังเหลือให้ react ทัน ไม่ใช่หลังจากหมดไปแล้ว นี่คือ mechanism หลักของโมดูล Monitors, Alerting และ SLOs และมันจะทำงานได้ก็ต่อเมื่อผูกไว้จริงก่อน go-live
+- **SLO define ไว้สำหรับ service กลุ่มเล็ก ๆ ที่ business พึ่งพาจริง ๆ** ไม่ใช่ vanity metric ที่ copy ใส่ทุก service เพราะเพิ่มง่าย
+- **burn-rate alert ผูกกับ SLO เหล่านั้น** เพื่อให้ทีมได้รับแจ้งเตือนตอนที่ error budget ยังเหลือให้ react ทัน ไม่ใช่หลังจากหมดไปแล้ว นี่คือ mechanism หลักของโมดูล Monitors, Alerting และ SLOs และจะทำงานได้ก็ต่อเมื่อผูกไว้จริงก่อน go-live
 - **notification target ของทุก monitor ถูกเช็คกับ owner ใน Service Catalog** จากขั้นตอน tagging ด้านบน เพื่อให้ page ไปถึงทีมที่ action ได้จริง
 
 ## จัดการทั้งหมดเป็น code review เหมือน code
 
 - **monitor, dashboard และ SLO เขียนเป็น Terraform resource** — `datadog_monitor`, `datadog_dashboard_v2`, `datadog_service_level_objective` — แทนที่จะคลิกประกอบเอง ตามที่คุยไปก่อนหน้าในโมดูลนี้
 - **`terraform plan` รันพร้อม query validation เปิดอยู่** เป็นส่วนหนึ่งของ pull request review ปกติ ก่อนที่ monitor หรือ dashboard change จะไปถึง production — bar review เดียวกับ infrastructure change อื่น ๆ
-- **RBAC ถูกเช็ค** ยืนยันว่ามีแค่ role ที่ตั้งใจถือ permission อย่าง `logs_modify_indexes` กับ `logs_write_exclusion_filters` ในขณะที่คนอื่นยังมีแค่ read/query access ปกติ
+- **RBAC ถูกเช็ค** ยืนยันว่ามีแค่ role ที่ตั้งใจถือ permission อย่าง `logs_modify_indexes` กับ `logs_write_exclusion_filters` ส่วนคนอื่นมีแค่ read/query access ปกติ
 - **cost alert monitor ของ Cloud Cost Management มีอยู่จริง** สำหรับ service หรือ account ที่ rollout นี้กระทบ เพื่อให้ cost spike ได้รับ alerting treatment แบบเดียวกับ latency spike ไม่ใช่มาเซอร์ไพรส์ตอนสิ้นเดือน
 
 ```text
@@ -77,8 +77,8 @@ export const quizRolloutChecklistTh = [
   {
     q: 'ทำไม ingestion sampling กับ retention filter ถึงต้อง review แยกกันก่อน go-live',
     options: [
-      'มันคือ setting เดียวกันแค่คนละชื่อ review ตัวเดียวก็ครอบคลุมอีกตัวแล้ว',
-      'มันคือสอง layer แยกกัน — sampling คุมว่า trace volume มาถึงมากแค่ไหน retention filter คุมว่าอะไรถูกเก็บระยะยาวไม่ว่า sampling จะเป็นยังไง',
+      'เป็น setting เดียวกันแค่คนละชื่อ review ตัวเดียวก็ครอบคลุมอีกตัวแล้ว',
+      'เป็นสอง layer แยกกัน — sampling คุมว่า trace volume มาถึงมากแค่ไหน retention filter คุมว่าอะไรถูกเก็บระยะยาวไม่ว่า sampling จะเป็นยังไง',
       'retention filter สำคัญกับ log เท่านั้น ไม่เกี่ยวกับ trace',
       'ingestion sampling เลิกใช้แล้ว config ไม่ได้อีกต่อไป',
     ],

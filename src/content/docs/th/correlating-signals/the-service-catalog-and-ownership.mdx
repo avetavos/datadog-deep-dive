@@ -12,11 +12,11 @@ import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 
 ## ไอเดียหลักในหนึ่งประโยค
 
-Service Catalog ตอบคำถามที่ metric, log หรือ trace ตัวไหนตัวเดียวตอบไม่ได้ — service นี้ใครเป็นเจ้าของ มันขึ้นกับอะไรบ้าง แล้ว code ของมันอยู่ที่ไหนจริง ๆ
+Service Catalog ตอบคำถามที่ metric, log หรือ trace ตัวไหนตัวเดียวตอบไม่ได้ — service นี้ใครเป็นเจ้าของ ขึ้นกับอะไรบ้าง แล้ว code ของตัวเองอยู่ที่ไหนจริง ๆ
 
 ## definition ไม่ใช่ query
 
-metric, log และ trace ล้วนเป็นสิ่งที่ service *ปล่อยออกมา* Service Catalog entry ต่างออกไป — มันคือ definition ที่เราประกาศเกี่ยวกับ service นั้น ตัวอย่างนี้ปรับมาจาก `billing-service`
+metric, log และ trace ล้วนเป็นสิ่งที่ service *ปล่อยออกมา* Service Catalog entry ต่างออกไป — เป็น definition ที่เราประกาศเกี่ยวกับ service นั้น ตัวอย่างนี้ปรับมาจาก `billing-service`
 
 ```yaml
 apiVersion: v3
@@ -34,19 +34,19 @@ datadog:
         - "**"
 ```
 
-`metadata.owner` คือใครที่ต้อง page metrics dashboard ไม่บอกว่าต้องแจ้งใครตอนตี 3 ที่ monitor fire log บรรทัดหนึ่งไม่บอกว่าใครเป็นคนเขียน service ที่สร้างมัน trace ก็ไม่ได้พก Slack channel ไปด้วย `metadata.owner` คือฟิลด์ที่ขาดหายไปตัวนั้นเป๊ะ ๆ — pointer ที่อยู่ถาวรไปหาทีมหนึ่ง ไม่ขึ้นกับว่า alert routing ของทีมนั้นถูกต่อเข้ากับ monitor ถูกต้องหรือเปล่าในวันนี้ด้วยซ้ำ
+`metadata.owner` คือใครที่ต้อง page metrics dashboard ไม่บอกว่าต้องแจ้งใครตอนตี 3 ที่ monitor fire log บรรทัดหนึ่งไม่บอกว่าใครเป็นคนเขียน service ที่สร้าง log บรรทัดนั้น trace ก็ไม่ได้พก Slack channel ไปด้วย `metadata.owner` คือฟิลด์ที่ขาดหายไปตัวนั้นเป๊ะ ๆ — pointer ที่อยู่ถาวรไปหาทีมหนึ่ง ไม่ขึ้นกับว่า alert routing ของทีมนั้นถูกต่อเข้ากับ monitor ถูกต้องหรือเปล่าในวันนี้ด้วยซ้ำ
 
 ## spec.dependsOn: edge ที่เราประกาศเอง ไม่ใช่ edge ที่ traffic บอก
 
-เทียบ `spec.dependsOn` กับ Service Map จาก module APM Service Map สร้างอัตโนมัติจากการสังเกต live trace traffic ระหว่าง service — แสดงว่าตอนนี้ใครเรียกใครจริง ๆ ผ่าน network `spec.dependsOn` ต่างออกไป มันคือ edge ที่ประกาศเองใน Catalog หมายความว่ามันจับความสัมพันธ์ที่ไม่เคยสร้าง span แม้แต่ตัวเดียวได้ `billing-service` อาจขึ้นกับ message queue ที่ `checkout-service` publish เข้าไปแบบ async — ไม่มี call ตรง ไม่มี trace เชื่อมสองตัวนี้เลย — หรือขึ้นกับ batch job ตอนกลางคืนที่อ่าน table ใน database ที่ `checkout-service` เป็นเจ้าของ Service Map บอกว่าใครคุยกับใคร ส่วน `dependsOn` ให้เราประกาศได้ด้วยว่าอะไรขึ้นกับอะไร รวมถึงความสัมพันธ์ที่ tracing ไม่มีทางเห็นตั้งแต่แรกอยู่แล้ว
+เทียบ `spec.dependsOn` กับ Service Map จาก module APM Service Map สร้างอัตโนมัติจากการสังเกต live trace traffic ระหว่าง service — แสดงว่าตอนนี้ใครเรียกใครจริง ๆ ผ่าน network `spec.dependsOn` ต่างออกไป เพราะเป็น edge ที่ประกาศเองใน Catalog หมายความว่าจับความสัมพันธ์ที่ไม่เคยสร้าง span แม้แต่ตัวเดียวได้ `billing-service` อาจขึ้นกับ message queue ที่ `checkout-service` publish เข้าไปแบบ async — ไม่มี call ตรง ไม่มี trace เชื่อมสองตัวนี้เลย — หรือขึ้นกับ batch job ตอนกลางคืนที่อ่าน table ใน database ที่ `checkout-service` เป็นเจ้าของ Service Map บอกว่าใครคุยกับใคร ส่วน `dependsOn` ให้เราประกาศได้ด้วยว่าอะไรขึ้นกับอะไร รวมถึงความสัมพันธ์ที่ tracing ไม่มีทางเห็นตั้งแต่แรกอยู่แล้ว
 
-## datadog.codeLocations: ผูก service เข้ากับ source ของมัน
+## datadog.codeLocations: ผูก service เข้ากับ source ของตัวเอง
 
 `repositoryURL` กับ `paths` ผูก identity ที่เป็นนามธรรมอย่าง `billing-service` เข้ากับ git repository จริง ทำให้ tooling ที่สร้างอยู่บน Catalog — code security scanning, requirement ของ code review ตาม ownership — รู้แน่ชัดว่า code ที่สร้าง telemetry ของ service นี้อยู่ที่ไหน แทนที่จะให้ใครสักคนดูแล mapping นี้ไว้ใน spreadsheet หรือ wiki ที่ล้าสมัยทันทีที่เขียนเสร็จ
 
 ## ส่วนที่ telemetry pipeline ให้ไม่ได้
 
-metric บอก resource usage log บอก event trace บอก path จริงของ request ที่วิ่งผ่าน service ต่าง ๆ ไม่มีสามอย่างนี้ตัวไหนบอกได้ว่าใครรับผิดชอบ service นี้ หรือมันขึ้นกับอะไรนอกเหนือจาก traffic ที่เกิดขึ้นวันนี้ หรือต้องเปิด repository ไหนถึงจะแก้มันได้ Service Catalog คือ layer เล็ก ๆ ที่ตั้งใจประกาศไว้ล่วงหน้า สร้างมาเพื่อตอบคำถามพวกนี้โดยเฉพาะ และยังมีประโยชน์อยู่แม้กับ service ที่วันนี้ไม่มี live traffic เลยสักนิด
+metric บอก resource usage log บอก event trace บอก path จริงของ request ที่วิ่งผ่าน service ต่าง ๆ ไม่มีสามอย่างนี้ตัวไหนบอกได้ว่าใครรับผิดชอบ service นี้ หรือขึ้นกับอะไรนอกเหนือจาก traffic ที่เกิดขึ้นวันนี้ หรือต้องเปิด repository ไหนถึงจะแก้ได้ Service Catalog คือ layer เล็ก ๆ ที่ตั้งใจประกาศไว้ล่วงหน้า สร้างมาเพื่อตอบคำถามพวกนี้โดยเฉพาะ และยังมีประโยชน์อยู่แม้กับ service ที่วันนี้ไม่มี live traffic เลยสักนิด
 
 <Mermaid title="A Catalog entry, independent of live telemetry" code={serviceCatalogDiagramTh} />
 
@@ -85,10 +85,10 @@ export const quizServiceCatalogTh = [
   {
     q: 'datadog.codeLocations ผูก service definition เข้ากับอะไร',
     options: [
-      'Kubernetes namespace ของมัน',
-      'ตาราง on-call ของมัน',
-      'source repository และ path จริงของมัน',
-      'log processing pipeline ของมัน'
+      'Kubernetes namespace ของตัวเอง',
+      'ตาราง on-call ของตัวเอง',
+      'source repository และ path จริงของตัวเอง',
+      'log processing pipeline ของตัวเอง'
     ],
     answer: 2
   },
@@ -96,7 +96,7 @@ export const quizServiceCatalogTh = [
     q: 'ข้อไหนคือสิ่งที่ Service Catalog ตอบได้ ที่ metric, log และ trace ตอบรวมกันไม่ได้',
     options: [
       'error rate ปัจจุบันของ service',
-      'ใครเป็นเจ้าของ service และมันขึ้นกับอะไรบ้างในเชิงโครงสร้าง โดยไม่ขึ้นกับ live telemetry',
+      'ใครเป็นเจ้าของ service และขึ้นกับอะไรบ้างในเชิงโครงสร้าง โดยไม่ขึ้นกับ live telemetry',
       'latency เฉลี่ยของ endpoint ของ service',
       'ปริมาณ log ที่ ingest ต่อวัน'
     ],

@@ -18,7 +18,7 @@ structured log (JSON) ทำให้ Processing Pipeline ดึง attribute �
 
 Grok Parser ดึง attribute ออกจากบรรทัดที่ไม่มีโครงสร้างแบบ `2024-01-15 ERROR user=42 duration=812ms checkout failed` ได้ แต่ pattern ทุกตัวคือการเดิมพันว่า log จะคงรูปแบบนั้นเป๊ะ ๆ ตลอด แค่เพิ่มคำ, สลับตำแหน่ง field หรือมี service หนึ่งที่ log ต่างจากอีก service เล็กน้อย Grok pattern ก็หยุด match แบบเงียบ ๆ — หรือแย่กว่านั้นคือ match ผิด
 
-structured log หลบปัญหานี้ไปเลย เพราะ field มีชื่อและ type อยู่แล้วก่อนที่ Datadog จะเห็นมันด้วยซ้ำ:
+structured log หลบปัญหานี้ไปเลย เพราะ field มีชื่อและ type อยู่แล้วก่อนที่ Datadog จะเห็นด้วยซ้ำ:
 
 ```json
 {
@@ -37,14 +37,14 @@ structured log หลบปัญหานี้ไปเลย เพราะ 
 
 พอ log มี attribute ที่มีโครงสร้างแล้ว — ไม่ว่าจะดึงมาด้วย Grok หรือเป็น JSON field แต่แรก — Datadog แปลง attribute นั้นให้เป็น **Facet** ได้ คือ field ที่ Logs Explorer มองว่า filter, group และ chart ได้ เหมือนกับที่เว็บไซต์ทั่วไป facet ผลการค้นหา การ facet บน `status_code` ทำให้ filter เป็น `status_code:500` ได้ หรือ group ผลค้นหาตาม `status_code` เพื่อดู breakdown ส่วนการ facet บน `service` ทำให้แบ่ง query ไหนก็ได้ตาม service ที่สร้าง log แต่ละตัว
 
-structure ที่สอดคล้องกันข้าม service คือสิ่งที่ทำให้ facet มีประโยชน์จริงในระดับ organization ถ้า service หนึ่งเรียกมันว่า `status_code` อีกตัวเรียก `httpStatus` และอีกตัวฝังไว้ในข้อความที่ไม่ได้ parse คุณ facet ข้ามทั้งสามตัวให้สอดคล้องกันไม่ได้ นี่คือเหตุผลที่การ remap สำคัญ ในการทำให้ log มีรูปร่างสอดคล้องกัน:
+structure ที่สอดคล้องกันข้าม service คือสิ่งที่ทำให้ facet มีประโยชน์จริงในระดับ organization ถ้า service หนึ่งเรียก field นี้ว่า `status_code` อีกตัวเรียก `httpStatus` และอีกตัวฝังไว้ในข้อความที่ไม่ได้ parse คุณ facet ข้ามทั้งสามตัวให้สอดคล้องกันไม่ได้ นี่คือเหตุผลที่การ remap สำคัญ ในการทำให้ log มีรูปร่างสอดคล้องกัน:
 
 - **Status Remapper** — map field severity ที่แต่ละ service เรียกไม่เหมือนกัน (`level`, `severity`, `log.level`, ...) เข้ากับ facet `status` มาตรฐานของ Datadog เพื่อให้ "ขอดู error ทั้งหมดจากทุก service" เป็น query เดียว แทนที่จะเป็น query ละ service
 - **Message Remapper** — กำหนดว่า attribute ไหนคือ message หลักที่มนุษย์อ่านได้ของ log เพื่อให้ Logs Explorer แสดงคอลัมน์ message ที่สมเหตุสมผล ไม่ว่า service ต้นทางจะเรียก field นั้นว่าอะไร
 
 ## Log Analytics เห็นเฉพาะ log ที่ index แล้ว
 
-นี่คือประเด็นที่ผูกกลับไปหาบทที่แล้วโดยตรง **Log Analytics** — การ breakdown แบบ group-by, computed measure และ aggregation อื่น ๆ บน facet — ทำงานได้เฉพาะกับ log ที่ถูก index จริง ๆ เท่านั้น Exclusion Filter ที่กัน log `level:debug` ไม่ให้เข้า index ไม่ได้แค่ซ่อนมันจากการค้นหาตรง ๆ เท่านั้น แต่ยังหมายความว่า log พวกนั้นปรากฏใน Log Analytics aggregation ไหนไม่ได้เลย เพราะไม่มีอะไรถูก index ให้ aggregate
+นี่คือประเด็นที่ผูกกลับไปหาบทที่แล้วโดยตรง **Log Analytics** — การ breakdown แบบ group-by, computed measure และ aggregation อื่น ๆ บน facet — ทำงานได้เฉพาะกับ log ที่ถูก index จริง ๆ เท่านั้น Exclusion Filter ที่กัน log `level:debug` ไม่ให้เข้า index ไม่ได้แค่ซ่อน log พวกนั้นจากการค้นหาตรง ๆ เท่านั้น แต่ยังหมายความว่า log พวกนั้นปรากฏใน Log Analytics aggregation ไหนไม่ได้เลย เพราะไม่มีอะไรถูก index ให้ aggregate
 
 ถ้าต้องการ slice-and-dice field บน log ที่ปกติถูก Exclusion Filter drop ทิ้ง คุณมีสามทางเลือกเดียวกับที่บทก่อนให้ไว้แล้ว มาใช้กับความต้องการนี้โดยเฉพาะ:
 
@@ -70,7 +70,7 @@ export const facetsDiagramTh = `flowchart LR
   E -->|no, excluded| G[No Log Analytics\\nuse log-based metric or Rehydration]`
 
 <Callout title="The one-line takeaway">
-structured log (JSON) ทำให้การดึง attribute เชื่อถือได้แทนที่จะเปราะบางแบบ Grok, attribute ที่สอดคล้องกัน (ผ่าน Status Remapper, Message Remapper และเพื่อน ๆ) กลายเป็น **Facet** ที่ filter และ group ได้ และ **Log Analytics aggregation ทำงานได้เฉพาะกับ log ที่ index แล้ว** — ดังนั้น field ที่ถูก Exclusion Filter ซ่อนไว้ ต้องการ filter ที่ผ่อนลง, log-based metric หรือ Rehydration ก่อนที่จะ group-by บนมันได้
+structured log (JSON) ทำให้การดึง attribute เชื่อถือได้แทนที่จะเปราะบางแบบ Grok, attribute ที่สอดคล้องกัน (ผ่าน Status Remapper, Message Remapper และเพื่อน ๆ) กลายเป็น **Facet** ที่ filter และ group ได้ และ **Log Analytics aggregation ทำงานได้เฉพาะกับ log ที่ index แล้ว** — ดังนั้น field ที่ถูก Exclusion Filter ซ่อนไว้ ต้องการ filter ที่ผ่อนลง, log-based metric หรือ Rehydration ก่อนที่จะ group-by ได้
 </Callout>
 
 export const quizStructuredLoggingFacetsTh = [

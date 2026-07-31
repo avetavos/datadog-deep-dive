@@ -12,11 +12,11 @@ import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 
 ## ไอเดียหลักในหนึ่งประโยค
 
-Synthetic Monitoring รัน scripted check เชิงรุกจาก global network ของ location ที่ Datadog เป็นเจ้าของเอง แทนที่จะรอให้ traffic จริงจาก user หรือ backend เผยปัญหาออกมา และเมื่อ test ตัวหนึ่ง fail มันจะเสียบเข้ากับ monitor และ notification pipeline เดียวกับที่พูดถึงไปแล้วก่อนหน้าใน module นี้พอดี
+Synthetic Monitoring รัน scripted check เชิงรุกจาก global network ของ location ที่ Datadog เป็นเจ้าของเอง แทนที่จะรอให้ traffic จริงจาก user หรือ backend เผยปัญหาออกมา และเมื่อ test ตัวหนึ่ง fail จะเสียบเข้ากับ monitor และ notification pipeline เดียวกับที่พูดถึงไปแล้วก่อนหน้าใน module นี้พอดี
 
 ## API test: single request-response check
 
-**API test** คือ single request-response check แบบ HTTP/TCP/DNS/ICMP — เช่นยิงไปที่ health-check endpoint แล้ว assert status code, response time หรือ body content มันรันซ้ำ ๆ จาก location ที่เลือกไว้
+**API test** คือ single request-response check แบบ HTTP/TCP/DNS/ICMP — เช่นยิงไปที่ health-check endpoint แล้ว assert status code, response time หรือ body content โดยรันซ้ำ ๆ จาก location ที่เลือกไว้
 
 ```json
 {
@@ -39,7 +39,7 @@ Synthetic Monitoring รัน scripted check เชิงรุกจาก glo
 
 ## Browser test: user journey แบบ scripted เต็มรูปแบบ
 
-**Browser test** รัน scripted browser flow เต็มรูปแบบผ่านหลาย step — เปิดหน้าเว็บ กดปุ่ม login assert ว่า dashboard element โผล่มา — เพื่อทดสอบ user journey จริงตั้งแต่ต้นจนจบ มันจับสิ่งที่ API test ทำไม่ได้โดยธรรมชาติ — หน้าเว็บอาจ return `200` แต่ UI พังก็ได้ หรือ flow อาจ fail กลางคันทั้งที่ทุก request ที่อยู่เบื้องหลัง "สำเร็จ" หมด
+**Browser test** รัน scripted browser flow เต็มรูปแบบผ่านหลาย step — เปิดหน้าเว็บ กดปุ่ม login assert ว่า dashboard element โผล่มา — เพื่อทดสอบ user journey จริงตั้งแต่ต้นจนจบ Browser test จับสิ่งที่ API test ทำไม่ได้โดยธรรมชาติ — หน้าเว็บอาจ return `200` แต่ UI พังก็ได้ หรือ flow อาจ fail กลางคันทั้งที่ทุก request ที่อยู่เบื้องหลัง "สำเร็จ" หมด
 
 ```json
 {
@@ -75,7 +75,7 @@ Synthetic test ที่ fail จะ trigger monitor ประเภท **synthe
 }
 ```
 
-ไม่มีอะไรในกลไก alerting เปลี่ยนไปเลยตรงนี้ มันคือ shape ของ `critical`/`warning` threshold เดียวกับบทที่ 1 การ route ด้วย `@`-mention และพฤติกรรม re-notify ของ `escalation_message` เดียวกับบทที่ 2 และความสามารถ mute ด้วย Downtime ตอน maintenance ที่วางแผนไว้ก็เหมือนกันทุกอย่าง สิ่งที่ต่างมีแค่แหล่งสัญญาณ แทนที่จะเป็น metric query หรือ log search input กลายเป็น "scripted check นี้ผ่านหรือ fail จาก location พวกนี้"
+ไม่มีอะไรในกลไก alerting เปลี่ยนไปเลยตรงนี้ ยังเป็น shape ของ `critical`/`warning` threshold เดียวกับบทที่ 1 การ route ด้วย `@`-mention และพฤติกรรม re-notify ของ `escalation_message` เดียวกับบทที่ 2 และความสามารถ mute ด้วย Downtime ตอน maintenance ที่วางแผนไว้ก็เหมือนกันทุกอย่าง สิ่งที่ต่างมีแค่แหล่งสัญญาณ แทนที่จะเป็น metric query หรือ log search input กลายเป็น "scripted check นี้ผ่านหรือ fail จาก location พวกนี้"
 
 <Mermaid title="From Synthetic test run to alert" code={syntheticsDiagramTh} />
 
@@ -112,7 +112,7 @@ export const quizSyntheticsUptimeTh = [
     answer: 1,
   },
   {
-    q: 'เมื่อ Synthetic test เริ่ม fail มันแจ้งเตือนคนอย่างไรตามปกติ',
+    q: 'เมื่อ Synthetic test เริ่ม fail Datadog แจ้งเตือนคนอย่างไรตามปกติ',
     options: [
       'Synthetics มีระบบ notification แยกต่างหากที่ไม่เกี่ยวกับ monitor',
       'ผ่าน synthetics alert monitor โดยใช้กลไก threshold/notification/escalation เดียวกับ monitor type อื่น',

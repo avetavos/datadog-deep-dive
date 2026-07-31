@@ -25,15 +25,15 @@ import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 
 ## Sensitive Data Scanner แบบ conceptual
 
-**Sensitive Data Scanner** หา pattern ที่ match กับ sensitive data — เลขบัตรเครดิต, email address, API key หรือ regex/keyword pattern แบบ custom ที่คุณ define — อยู่ใน telemetry ที่ไหลผ่าน Datadog ส่วนใหญ่คือ log พอเจอ match มันจะ flag, redact หรือ hash ได้ ขึ้นกับว่า rule ตั้งไว้ยังไง โดยไม่ต้องไปแก้ว่า application จะ log อะไรจริง ๆ เรื่องนี้สำคัญกับ compliance regime อย่าง PCI หรือ GDPR — คุณได้ safety net สำหรับ sensitive data ที่หลุดเข้าไปใน log line อยู่ดีถึงทุกคนจะตั้งใจระวังแล้ว แทนที่จะพึ่ง discipline ที่ layer application อย่างเดียว
+**Sensitive Data Scanner** หา pattern ที่ match กับ sensitive data — เลขบัตรเครดิต, email address, API key หรือ regex/keyword pattern แบบ custom ที่คุณ define — อยู่ใน telemetry ที่ไหลผ่าน Datadog ส่วนใหญ่คือ log พอเจอ match จะ flag, redact หรือ hash ได้ ขึ้นกับว่า rule ตั้งไว้ยังไง โดยไม่ต้องไปแก้ว่า application จะ log อะไรจริง ๆ เรื่องนี้สำคัญกับ compliance regime อย่าง PCI หรือ GDPR — คุณได้ safety net สำหรับ sensitive data ที่หลุดเข้าไปใน log line อยู่ดีถึงทุกคนจะตั้งใจระวังแล้ว แทนที่จะพึ่ง discipline ที่ layer application อย่างเดียว
 
 ## ตัวอย่างที่จับต้องได้: granular RBAC สำหรับ Log Management
 
-security posture กับ data scanning เป็นเรื่อง telemetry content ส่วน **RBAC (role-based access control)** เป็นเรื่องว่าใครทำอะไรได้บ้างใน Datadog เอง และ Log Management เป็นที่ที่เห็นความละเอียดของมันชัดที่สุด — เพราะอย่างที่โมดูล Log Management สอนไว้ การตัดสินใจว่าอะไรถูก index, exclude หรือ archive คือการตัดสินใจเรื่อง **cost** โดยตรง ไม่ใช่แค่เรื่อง cosmetic คุณไม่อยากให้ lever นี้เปิดให้ทุกคนที่แค่ต้องการ search log
+security posture กับ data scanning เป็นเรื่อง telemetry content ส่วน **RBAC (role-based access control)** เป็นเรื่องว่าใครทำอะไรได้บ้างใน Datadog เอง และ Log Management เป็นที่ที่เห็นความละเอียดของตัวเองชัดที่สุด — เพราะอย่างที่โมดูล Log Management สอนไว้ การตัดสินใจว่าอะไรถูก index, exclude หรือ archive คือการตัดสินใจเรื่อง **cost** โดยตรง ไม่ใช่แค่เรื่อง cosmetic คุณไม่อยากให้ lever นี้เปิดให้ทุกคนที่แค่ต้องการ search log
 
 permission บางส่วนที่ Datadog เปิดให้เฉพาะเรื่อง log
 
-- **`logs_modify_indexes`** — สร้าง, แก้ หรือจัดลำดับ log index รวมถึง retention period กับ daily quota ของมัน permission นี้คุมว่าคุณจ่าย indexed log volume เท่าไหร่
+- **`logs_modify_indexes`** — สร้าง, แก้ หรือจัดลำดับ log index รวมถึง retention period กับ daily quota ของตัวเอง permission นี้คุมว่าคุณจ่าย indexed log volume เท่าไหร่
 - **`logs_write_exclusion_filters`** — สร้างหรือแก้ exclusion filter คือ rule ที่ตัดสินว่า log ไหนไม่ถูก index เลย เป็นทั้ง cost lever และ data-visibility lever โดยตรง
 - **`logs_write_pipelines`** — สร้างหรือแก้ Processing Pipeline คือขั้นตอน parse กับ enrich จากโมดูล Log Management ทำผิดตรงนี้ไม่กระทบ cost แต่ทำให้ parsing พังสำหรับ log ทุกตัวที่ match filter ของ pipeline นั้นได้
 - **`logs_write_archives`** — ตั้งค่าว่า log จะถูก archive ไปที่ไหน (เช่น cold storage บน S3) แยกจากเรื่องว่าอะไรถูก index
@@ -41,7 +41,7 @@ permission บางส่วนที่ Datadog เปิดให้เฉพ
 - **`logs_generate_metrics`** — สร้าง log-based metric แปลง log query ให้กลายเป็น custom metric โดยไม่ให้สิทธิ์ไปเปลี่ยนว่าอะไรถูก index
 - **`logs_write_facets`** — สร้างหรือแก้ facet ที่ใช้ search และ filter log ใน Log Explorer
 
-pattern ที่เห็นในทุกตัวนี้ Datadog แยก "query และอ่าน log ได้" ออกจาก "เปลี่ยนได้ว่าอะไรถูก index, exclude หรือ archive" application engineer ที่กำลัง investigate incident ต้อง search log ได้อย่างอิสระ แต่ไม่จำเป็นต้องมีสิทธิ์ไปเปลี่ยน log source production เสียงดัง ๆ จาก excluded ให้กลายเป็น fully indexed แล้วดันบิล log เดือนหน้าขึ้นสามเท่าแบบเงียบ ๆ ทีม platform หรือ SRE ที่ถือ `logs_modify_indexes` กับ `logs_write_exclusion_filters` ตัดสินใจเรื่องนี้ได้อย่างตั้งใจ โดยคำนึงถึง cost tradeoff ในขณะที่คนอื่นยังมีแค่สิทธิ์ read
+pattern ที่เห็นในทุกตัวนี้ Datadog แยก "query และอ่าน log ได้" ออกจาก "เปลี่ยนได้ว่าอะไรถูก index, exclude หรือ archive" application engineer ที่กำลัง investigate incident ต้อง search log ได้อย่างอิสระ แต่ไม่จำเป็นต้องมีสิทธิ์ไปเปลี่ยน log source production เสียงดัง ๆ จาก excluded ให้กลายเป็น fully indexed แล้วดันบิล log เดือนหน้าขึ้นสามเท่าแบบเงียบ ๆ ทีม platform หรือ SRE ที่ถือ `logs_modify_indexes` กับ `logs_write_exclusion_filters` ตัดสินใจเรื่องนี้ได้อย่างตั้งใจ โดยคำนึงถึง cost tradeoff ส่วนคนอื่นมีแค่สิทธิ์ read
 
 <Mermaid title="Splitting read access from index/exclusion/archive control" code={securityRbacDiagramTh} />
 

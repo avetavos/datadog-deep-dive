@@ -18,11 +18,11 @@ Datadog **Monitor** คือ query ที่บันทึกไว้บว�
 
 Datadog มี monitor type หลายแบบ ได้แก่ **metric alert** (query กับ metric ตัวไหนก็ได้), **log alert** (query กับ log event ที่ตรงกับ search), **APM/trace-analytics alert** (query กับข้อมูล span หรือ trace), **composite** (รวม monitor อื่นเข้าด้วยกันด้วย boolean logic), **synthetics alert** (ดู pass/fail history ของ Synthetic test), **SLO alert** (ดู error budget ของ SLO) และแบบอื่น ๆ เช่น process check กับ Watchdog anomaly alert
 
-ทั้งหมดนี้เสียบเข้ากับกลไก alerting และ notification ตัวเดียวกัน — concept ของ state, threshold และ message เหมือนกันหมด สิ่งที่ต่างมีแค่ข้อมูลมาจากไหน บทเรียนนี้ (และบทที่เหลือใน module นี้) ใช้ **metric alert** เป็นตัวอย่างที่จับต้องได้ เพราะโครงสร้าง threshold ของมันคือ shape ที่ monitor type อื่นเอาไปใช้ในทางเดียวกัน
+ทั้งหมดนี้เสียบเข้ากับกลไก alerting และ notification ตัวเดียวกัน — concept ของ state, threshold และ message เหมือนกันหมด สิ่งที่ต่างมีแค่ข้อมูลมาจากไหน บทเรียนนี้ (และบทที่เหลือใน module นี้) ใช้ **metric alert** เป็นตัวอย่างที่จับต้องได้ เพราะโครงสร้าง threshold ของตัวเองคือ shape ที่ monitor type อื่นเอาไปใช้ในทางเดียวกัน
 
 ## โครงสร้าง threshold ของ metric alert
 
-query ของ metric alert มี comparison อยู่ในตัวมันเองแล้ว และ `options.thresholds` ก็สะท้อนและขยายมันต่อ
+query ของ metric alert มี comparison อยู่ในตัวเองแล้ว และ `options.thresholds` ก็สะท้อนและขยาย comparison นั้นต่อ
 
 ```json
 {
@@ -41,17 +41,17 @@ query ของ metric alert มี comparison อยู่ในตัวมั
 ```
 
 - **`critical`** — ค่าที่ถ้าข้ามไปจะดัน monitor เข้า Alert state ปกติจะตรงกับ comparison ที่เขียนอยู่ใน `query` string อยู่แล้ว
-- **`warning`** — เส้นที่ต่ำกว่าและ severity อ่อนกว่า ถ้าข้ามจะดัน monitor เข้า Warn state มีประโยชน์ตรงที่เห็นค่ากำลัง drift ไปในทิศทางที่ไม่ดีก่อนที่มันจะกลายเป็นการ page จริง
+- **`warning`** — เส้นที่ต่ำกว่าและ severity อ่อนกว่า ถ้าข้ามจะดัน monitor เข้า Warn state มีประโยชน์ตรงที่เห็นค่ากำลัง drift ไปในทิศทางที่ไม่ดีก่อนที่จะกลายเป็นการ page จริง
 
 `critical` กับ `warning` ทั้งคู่คือ threshold ที่ใช้ **trigger** — ตอบคำถามว่า "เมื่อไหร่ถึงจะนับว่านี่คือปัญหา"
 
 ## Recovery threshold: ตัวเลขอีกชุดหนึ่งโดยตั้งใจ
 
-`critical_recovery` กับ `warning_recovery` เป็นฟิลด์แยกต่างหาก และตอบคำถามคนละอย่าง คือ "เมื่อไหร่ถึงจะนับว่าปัญหานี้ *จบแล้ว*" ถ้าไม่ตั้งค่าไว้ Datadog จะ default ให้เท่ากับ trigger threshold แต่ทีมส่วนใหญ่ override มันโดยตั้งใจ
+`critical_recovery` กับ `warning_recovery` เป็นฟิลด์แยกต่างหาก และตอบคำถามคนละอย่าง คือ "เมื่อไหร่ถึงจะนับว่าปัญหานี้ *จบแล้ว*" ถ้าไม่ตั้งค่าไว้ Datadog จะ default ให้เท่ากับ trigger threshold แต่ทีมส่วนใหญ่ override ค่านี้โดยตั้งใจ
 
-เหตุผลที่ gap ตรงนี้สำคัญคือ ถ้า recovery threshold เท่ากับ trigger threshold metric ที่แกว่งอยู่แถว 90 พอดีจะ alert แล้ว recover แล้ว alert แล้ว recover วนไปเรื่อย ๆ พฤติกรรมนี้เรียกว่า **flapping** และมันคือวิธีที่เร็วที่สุดวิธีหนึ่งที่ทำให้ทีม on-call เลิกเชื่อ (แล้วเริ่มเมิน) การ page ของตัวเอง
+เหตุผลที่ gap ตรงนี้สำคัญคือ ถ้า recovery threshold เท่ากับ trigger threshold metric ที่แกว่งอยู่แถว 90 พอดีจะ alert แล้ว recover แล้ว alert แล้ว recover วนไปเรื่อย ๆ พฤติกรรมนี้เรียกว่า **flapping** และเป็นวิธีที่เร็วที่สุดวิธีหนึ่งที่ทำให้ทีม on-call เลิกเชื่อ (แล้วเริ่มเมิน) การ page ของตัวเอง
 
-การตั้ง `critical_recovery` ให้ต่ำกว่า `critical` อย่างมีนัยสำคัญ — 70 แทนที่จะเป็น 90 — สร้าง dead zone ขึ้นมา เมื่อ monitor fire ไปแล้ว ค่าต้องลดลงไปมากพอสมควรก่อนที่ Datadog จะถือว่ามัน resolve จริง ๆ ค่าที่เด้งอยู่ระหว่าง 88 กับ 92 จะค้างอยู่ใน Alert state ตลอด แทนที่จะ flap เข้าออกไปมา
+การตั้ง `critical_recovery` ให้ต่ำกว่า `critical` อย่างมีนัยสำคัญ — 70 แทนที่จะเป็น 90 — สร้าง dead zone ขึ้นมา เมื่อ monitor fire ไปแล้ว ค่าต้องลดลงไปมากพอสมควรก่อนที่ Datadog จะถือว่า resolve จริง ๆ ค่าที่เด้งอยู่ระหว่าง 88 กับ 92 จะค้างอยู่ใน Alert state ตลอด แทนที่จะ flap เข้าออกไปมา
 
 ## `evaluation_delay`: อย่า alert จากข้อมูลที่มาไม่ครบ
 
@@ -67,7 +67,7 @@ metric บางตัวมาถึงช้ากว่าปกติ — me
 }
 ```
 
-เมื่อตั้ง `evaluation_delay: 300` monitor จะประเมิน window ของมันช้ากว่าปกติห้านาที ให้เวลาข้อมูลที่มาช้าได้โผล่มาก่อนที่จะมีการตัดสินใจ
+เมื่อตั้ง `evaluation_delay: 300` monitor จะประเมิน window ของตัวเองช้ากว่าปกติห้านาที ให้เวลาข้อมูลที่มาช้าได้โผล่มาก่อนที่จะมีการตัดสินใจ
 
 <Mermaid title="Metric alert state transitions" code={thresholdDiagramTh} />
 
@@ -79,7 +79,7 @@ export const thresholdDiagramTh = `flowchart LR
   WARN -->|value drops below warning_recovery e.g. 50| OK`
 
 <Callout title="The one-line takeaway">
-`critical` กับ `warning` เป็นตัวตัดสินว่า metric alert จะ trigger เมื่อไหร่ ส่วน `critical_recovery` กับ `warning_recovery` เป็นฟิลด์แยกที่ตัดสินแค่ว่ามันจะกลับไป OK เมื่อไหร่ — การเว้น gap ระหว่างสองชุดนี้ป้องกัน flapping และ `evaluation_delay` ปกป้อง monitor จากการตัดสินใจบนข้อมูลที่ยังมาไม่ครบ
+`critical` กับ `warning` เป็นตัวตัดสินว่า metric alert จะ trigger เมื่อไหร่ ส่วน `critical_recovery` กับ `warning_recovery` เป็นฟิลด์แยกที่ตัดสินแค่ว่าจะกลับไป OK เมื่อไหร่ — การเว้น gap ระหว่างสองชุดนี้ป้องกัน flapping และ `evaluation_delay` ปกป้อง monitor จากการตัดสินใจบนข้อมูลที่ยังมาไม่ครบ
 </Callout>
 
 export const quizMonitorThresholdsTh = [
@@ -87,7 +87,7 @@ export const quizMonitorThresholdsTh = [
     q: 'ใน Datadog metric alert ความสัมพันธ์ระหว่าง `critical` threshold กับ `critical_recovery` threshold คืออะไร',
     options: [
       'ต้องเท่ากันเสมอ monitor ถึงจะทำงานได้',
-      '`critical` ตัดสินว่า monitor จะเข้า Alert state เมื่อไหร่ ส่วน `critical_recovery` ตัดสินแค่ว่ามันจะกลับไป OK เมื่อไหร่',
+      '`critical` ตัดสินว่า monitor จะเข้า Alert state เมื่อไหร่ ส่วน `critical_recovery` ตัดสินแค่ว่าจะกลับไป OK เมื่อไหร่',
       '`critical_recovery` ถูกประเมินก่อน `critical` ใน query',
       '`critical_recovery` กำหนด retention period ของ alert history',
     ],

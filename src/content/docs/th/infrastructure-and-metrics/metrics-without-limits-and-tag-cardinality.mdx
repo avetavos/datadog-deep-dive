@@ -16,7 +16,7 @@ import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 
 ## Cardinality คือ cost ไม่ใช่ volume
 
-หลายคนคิดว่า cost ของ metric เหมือน log หรือ trace คือยิ่ง data point เยอะยิ่งแพง แต่ custom metric ไม่ได้ทำงานแบบนั้นเป๊ะ ๆ ชื่อ metric ผสมกับ **combination ของ tag value ที่ไม่ซ้ำกันทุกแบบ** ที่มันถูกส่งมาด้วย จะกลายเป็น time series แยกที่ Datadog ต้อง index ให้ query และ graph ได้ ถ้า tag metric ด้วยอะไรที่ cardinality ต่ำอย่าง `env` (มีค่าไม่กี่แบบ เช่น `prod`, `staging`, `dev`) ก็จะได้ time series แค่ไม่กี่ตัว แต่ถ้า tag metric ตัวเดียวกันด้วย `pod_name` ใน Kubernetes cluster ที่หมุนเวียนชื่อ pod เป็นพันชื่อต่อวัน ก็สามารถสร้าง time series ที่แตกต่างกันจำนวนมหาศาลจาก metric ชื่อเดียวได้ และ combinatorial explosion นี้เอง ไม่ใช่ volume ของการ submit ดิบ ที่เป็นตัวขับ billing ของ custom metric
+หลายคนคิดว่า cost ของ metric เหมือน log หรือ trace คือยิ่ง data point เยอะยิ่งแพง แต่ custom metric ไม่ได้ทำงานแบบนั้นเป๊ะ ๆ ชื่อ metric ผสมกับ **combination ของ tag value ที่ไม่ซ้ำกันทุกแบบ** ที่ถูกส่งมาด้วย จะกลายเป็น time series แยกที่ Datadog ต้อง index ให้ query และ graph ได้ ถ้า tag metric ด้วยอะไรที่ cardinality ต่ำอย่าง `env` (มีค่าไม่กี่แบบ เช่น `prod`, `staging`, `dev`) ก็จะได้ time series แค่ไม่กี่ตัว แต่ถ้า tag metric ตัวเดียวกันด้วย `pod_name` ใน Kubernetes cluster ที่หมุนเวียนชื่อ pod เป็นพันชื่อต่อวัน ก็สามารถสร้าง time series ที่แตกต่างกันจำนวนมหาศาลจาก metric ชื่อเดียวได้ และ combinatorial explosion นี้เอง ไม่ใช่ volume ของการ submit ดิบ ที่เป็นตัวขับ billing ของ custom metric
 
 ## Metrics without Limits ทำอะไรจริง ๆ
 
@@ -35,7 +35,7 @@ Indexed tags (turned on later, for an investigation): env, service, pod_name
 
 ## Percentile aggregation ตอน query
 
-อีกแนวคิดที่เกี่ยวข้องและมักทำให้สับสนคู่กับ cardinality คือสำหรับ metric type `DISTRIBUTION` (จากบทก่อนหน้า) ไม่ได้ล็อก "avg" หรือ "p95" ไว้ตอน submit — เลือก **aggregation** ตอนที่ query หรือ graph metric จริง ๆ ต่างหาก ข้อมูล distribution ชุดเดียวกันดูเป็น `avg`, `max`, `p50`, `p95`, หรือ `p99` ได้ตามที่เลือกใน query editor หรือ dashboard widget โดยไม่ต้อง resubmit อะไรเลย นี่คือคนละมิติกับ tag cardinality cardinality ควบคุมว่า tag combination ไหน query ได้ ส่วน aggregation ควบคุมว่าค่าตัวเลขภายใน combination ที่เลือกไว้ถูกสรุปยังไงตอนที่ดูมัน
+อีกแนวคิดที่เกี่ยวข้องและมักทำให้สับสนคู่กับ cardinality คือสำหรับ metric type `DISTRIBUTION` (จากบทก่อนหน้า) ไม่ได้ล็อก "avg" หรือ "p95" ไว้ตอน submit — เลือก **aggregation** ตอนที่ query หรือ graph metric จริง ๆ ต่างหาก ข้อมูล distribution ชุดเดียวกันดูเป็น `avg`, `max`, `p50`, `p95`, หรือ `p99` ได้ตามที่เลือกใน query editor หรือ dashboard widget โดยไม่ต้อง resubmit อะไรเลย นี่คือคนละมิติกับ tag cardinality cardinality ควบคุมว่า tag combination ไหน query ได้ ส่วน aggregation ควบคุมว่าค่าตัวเลขภายใน combination ที่เลือกไว้ถูกสรุปยังไงตอนที่ดู
 
 <Mermaid title="Raw ingestion vs. indexed, queryable tags" code={mwlDiagramTh} />
 
@@ -46,7 +46,7 @@ export const mwlDiagramTh = `flowchart LR
   C -->|can enable later: + pod_name| E[Queryable time series: higher cardinality, for deep investigation]`
 
 <Callout title="The one-line takeaway">
-cost ของ custom metric มาจาก **tag cardinality ที่ index ไว้** ไม่ใช่ volume ของการ ingest ดิบ **Metrics without Limits** ให้ ingest tag cardinality สูงอย่าง `pod_name` แบบถูก ในขณะที่จ่ายแค่ view cardinality ต่ำอย่าง `by service` และเปิด tag เพิ่มทีหลังเพื่อสืบสวนได้โดยไม่ต้องแตะ instrumentation
+cost ของ custom metric มาจาก **tag cardinality ที่ index ไว้** ไม่ใช่ volume ของการ ingest ดิบ **Metrics without Limits** ให้ ingest tag cardinality สูงอย่าง `pod_name` แบบถูก โดยจ่ายแค่ view cardinality ต่ำอย่าง `by service` และเปิด tag เพิ่มทีหลังเพื่อสืบสวนได้โดยไม่ต้องแตะ instrumentation
 </Callout>
 
 export const quizMwlTh = [

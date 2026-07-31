@@ -21,9 +21,9 @@ span แทน work หนึ่งหน่วย — HTTP request หนึ่
 - **name** — ประเภทของ operation เช่น `web.request` หรือ `postgres.query`
 - **resource** — สิ่งที่ทำแบบเจาะจงกว่านั้น เช่น `GET /checkout` หรือ `SELECT * FROM orders`
 - **start กับ duration** — span เริ่มเมื่อไหร่และใช้เวลานานแค่ไหน
-- **ความสัมพันธ์ parent/child** — `parent_id` ที่ชี้ไปที่ span ซึ่งเป็นต้นเหตุให้ span นี้เกิดขึ้น
+- **ความสัมพันธ์ parent/child** — `parent_id` ที่ชี้ไปที่ span ที่เป็นต้นเหตุให้ span นี้เกิดขึ้น
 
-span ที่ไม่มี `parent_id` คือ **root span** — เป็นจุดเริ่มต้นของ trace มักเป็น inbound request ที่ทำให้ทุกอย่างเริ่มทำงาน span ที่เหลือทุกตัวใน trace ไล่สายกลับไปหา root นี้ทีละ parent ซึ่งเป็นสิ่งที่ทำให้ span กองหนึ่งกลายเป็น tree
+span ที่ไม่มี `parent_id` คือ **root span** — เป็นจุดเริ่มต้นของ trace มักเป็น inbound request ที่ทำให้ทุกอย่างเริ่มทำงาน span ที่เหลือทุกตัวใน trace ไล่สายกลับไปหา root นี้ทีละ parent นั่นคือสิ่งที่ทำให้ span กองหนึ่งกลายเป็น tree
 
 ```json
 {
@@ -38,13 +38,13 @@ span ที่ไม่มี `parent_id` คือ **root span** — เป็�
 }
 ```
 
-`parent_id: null` ตรงนี้เองที่ทำให้ span นี้เป็น root — span ทุกตัวที่อยู่ downstream ของมัน (database query ที่มัน trigger, การเรียก payments service และอื่น ๆ) จะมี `parent_id` ที่ไล่กลับมาที่นี่ในที่สุด
+`parent_id: null` ตรงนี้เองที่ทำให้ span นี้เป็น root — span ทุกตัวที่อยู่ downstream ของตัวเอง (database query ที่ span นี้ trigger, การเรียก payments service และอื่น ๆ) จะมี `parent_id` ที่ไล่กลับมาที่นี่ในที่สุด
 
 ## Auto-instrumentation เทียบกับ manual span
 
-span ส่วนใหญ่ใน trace โผล่ขึ้นมาเองโดยไม่ต้องเขียน tracing code เลย Datadog tracing library เข้าไป hook กับ framework, HTTP client และ database driver ของคุณ — พอ request เข้ามา, พอมี outbound call ออกไป, พอ query รันขึ้น มันสร้าง span ให้อัตโนมัติ นี่คือ **auto-instrumentation** และเป็นเหตุผลที่การติดตั้ง tracer เข้ากับ web app ทั่วไปให้ trace ที่ค่อนข้างสมบูรณ์ตั้งแต่วันแรก
+span ส่วนใหญ่ใน trace โผล่ขึ้นมาเองโดยไม่ต้องเขียน tracing code เลย Datadog tracing library เข้าไป hook กับ framework, HTTP client และ database driver ของคุณ — พอ request เข้ามา, พอมี outbound call ออกไป, พอ query รันขึ้น library จะสร้าง span ให้อัตโนมัติ นี่คือ **auto-instrumentation** และเป็นเหตุผลที่การติดตั้ง tracer เข้ากับ web app ทั่วไปให้ trace ที่ค่อนข้างสมบูรณ์ตั้งแต่วันแรก
 
-แต่ auto-instrumentation หยุดที่ขอบของ business logic ของคุณเอง ถ้าอยากได้ visibility ของโค้ดบล็อกใดบล็อกหนึ่งโดยเฉพาะ — การคำนวณส่วนลด, step ใน batch job, cache lookup ที่เขียนเอง — ต้องห่อมันด้วย **manual span**
+แต่ auto-instrumentation หยุดที่ขอบของ business logic ของคุณเอง ถ้าอยากได้ visibility ของโค้ดบล็อกใดบล็อกหนึ่งโดยเฉพาะ — การคำนวณส่วนลด, step ใน batch job, cache lookup ที่เขียนเอง — ต้องห่อโค้ดส่วนนั้นด้วย **manual span**
 
 ```python
 from ddtrace import tracer
@@ -65,7 +65,7 @@ manual span ตรงนี้กลายเป็น child ของ span ท�
 
 span ทุกตัวมี tag `service` ติดอยู่ — `checkout-web`, `payments-service`, `inventory-service` เมื่อ child ของ span หนึ่งมี tag `service` **ต่างจาก** parent นั่นคือ dependency จริงที่สังเกตเห็นระหว่างสอง service ณ ตอนที่ request ข้าม boundary นั้นจริง ๆ
 
-**Service Map** คือ Datadog อ่าน signal ตัวนี้แหละจากทุก trace ที่ไหลผ่านระบบของคุณ แล้วรวม edge ทั้งหมดของ parent→child, service→service เข้าเป็นกราฟเดียวที่ live อยู่ตลอดเวลา เพราะมันประกอบขึ้นจากความสัมพันธ์ span จริง ไม่ใช่คนคอยดูแล มันเลย update ตัวเองทันทีที่ pattern ของ traffic เปลี่ยน call ใหม่ไปหา downstream โผล่บนแผนที่ทันทีที่เริ่มเกิดขึ้นจริง และ service ที่เลิกใช้แล้วก็หายไปจากแผนที่เมื่อไม่มีใครเรียกมันอีก เทียบกับไดอะแกรม architecture ที่วาดมือ ซึ่งถูกต้องแค่วันที่วาดแล้วก็เก่าไปในอีกเดือนถัดมา
+**Service Map** คือ Datadog อ่าน signal ตัวนี้แหละจากทุก trace ที่ไหลผ่านระบบของคุณ แล้วรวม edge ทั้งหมดของ parent→child, service→service เข้าเป็นกราฟเดียวที่ live อยู่ตลอดเวลา เพราะประกอบขึ้นจากความสัมพันธ์ span จริง ไม่ใช่คนคอยดูแล Service Map จึง update ตัวเองทันทีที่ pattern ของ traffic เปลี่ยน call ใหม่ไปหา downstream โผล่บนแผนที่ทันทีที่เริ่มเกิดขึ้นจริง และ service ที่เลิกใช้แล้วก็หายไปจากแผนที่เมื่อไม่มีใครเรียกอีก เทียบกับไดอะแกรม architecture ที่วาดมือ ซึ่งถูกต้องแค่วันที่วาดแล้วก็เก่าไปในอีกเดือนถัดมา
 
 <Mermaid title="From span tree to Service Map" code={serviceMapDiagramTh} />
 
@@ -81,17 +81,17 @@ export const serviceMapDiagramTh = `flowchart LR
   A -.observed service boundary crossings become.-> SM`
 
 <Callout title="The one-line takeaway">
-trace คือ tree ของ **span** ที่ root อยู่ที่ span ซึ่งไม่มี parent, span มาจาก **auto-instrumentation** (hook เข้า framework/HTTP/DB) บวกกับ **manual span** ใดก็ตามที่คุณเพิ่มรอบ custom logic และ **Service Map** ก็แค่เอาความสัมพันธ์ parent→child กับ tag `service` ของ span พวกนั้นมา render สด ๆ — มัน update ตัวเองตาม traffic ที่เปลี่ยนไป ไม่เก่าเหมือนไดอะแกรมที่วาดมือ
+trace คือ tree ของ **span** ที่ root อยู่ที่ span ซึ่งไม่มี parent, span มาจาก **auto-instrumentation** (hook เข้า framework/HTTP/DB) บวกกับ **manual span** ใดก็ตามที่คุณเพิ่มรอบ custom logic และ **Service Map** ก็แค่เอาความสัมพันธ์ parent→child กับ tag `service` ของ span พวกนั้นมา render สด ๆ — Service Map update ตัวเองตาม traffic ที่เปลี่ยนไป ไม่เก่าเหมือนไดอะแกรมที่วาดมือ
 </Callout>
 
 export const quizTracesSpansTh = [
   {
     q: 'อะไรที่บอกว่า span หนึ่งเป็น root span ของ trace',
     options: [
-      'มันมี duration ยาวที่สุดใน trace',
-      'มันไม่มี `parent_id`',
-      'มันชื่อ `web.request` เสมอ',
-      'มันถูกสร้างเป็นตัวสุดท้ายตามลำดับเวลา',
+      'มี duration ยาวที่สุดใน trace',
+      'ไม่มี `parent_id`',
+      'ชื่อ `web.request` เสมอ',
+      'ถูกสร้างเป็นตัวสุดท้ายตามลำดับเวลา',
     ],
     answer: 1,
   },
@@ -116,12 +116,12 @@ export const quizTracesSpansTh = [
     answer: 1,
   },
   {
-    q: 'ทำไม Service Map ถึงแม่นยำตลอดเวลาโดยไม่มีใครต้อง update มันเอง',
+    q: 'ทำไม Service Map ถึงแม่นยำตลอดเวลาโดยไม่มีใครต้องมาคอย update เอง',
     options: [
       'Datadog support ตรวจสอบให้ทุกสัปดาห์',
-      'มันแสดงแค่ service ที่ตั้งค่าไว้ตอน setup เท่านั้น',
-      'มันถูก generate ใหม่จากความสัมพันธ์ span/service จริงใน traffic สด ๆ dependency ใหม่หรือที่ถูกถอดออกจึงโผล่ตาม traffic ที่เปลี่ยนไปจริง',
-      'มันถูก cache ไว้ครั้งเดียวแล้วไม่เปลี่ยนอีกเลย',
+      'แสดงแค่ service ที่ตั้งค่าไว้ตอน setup เท่านั้น',
+      'ถูก generate ใหม่จากความสัมพันธ์ span/service จริงใน traffic สด ๆ dependency ใหม่หรือที่ถูกถอดออกจึงโผล่ตาม traffic ที่เปลี่ยนไปจริง',
+      'ถูก cache ไว้ครั้งเดียวแล้วไม่เปลี่ยนอีกเลย',
     ],
     answer: 2,
   },

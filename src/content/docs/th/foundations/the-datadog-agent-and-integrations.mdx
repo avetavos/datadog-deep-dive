@@ -19,7 +19,7 @@ import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 เวลาคนพูดว่า "ติดตั้ง Datadog Agent" จริง ๆ แล้วหมายถึง package ที่ยกกลุ่ม process ที่ทำงานร่วมกันขึ้นมา แต่ละตัวมีหน้าที่แคบ ๆ
 
 - **Core Agent** — เก็บ metric ระดับ host/system (CPU, memory, disk, network) และรัน **checks** กับ integration ที่ตั้งค่าไว้ นี่คือ process ที่อ่าน config ใน `conf.d/`
-- **Trace Agent** — ฟัง span ที่ tracing library ของแอปส่งมาในเครื่อง batch แล้วส่งต่อไปที่ APM intake ของ Datadog แอปของคุณไม่เคยคุยกับ Datadog โดยตรงสำหรับ trace — มันคุยกับ Trace Agent
+- **Trace Agent** — ฟัง span ที่ tracing library ของแอปส่งมาในเครื่อง batch แล้วส่งต่อไปที่ APM intake ของ Datadog แอปของคุณไม่เคยคุยกับ Datadog โดยตรงสำหรับ trace — แต่คุยกับ Trace Agent
 - **Process Agent** — เก็บข้อมูลระดับ process แบบ live (อะไรกำลังรันอยู่, ใช้ resource เท่าไหร่) ที่ขับเคลื่อน view Live Processes
 - **Security Agent** *(optional)* — รัน Cloud Security Posture Management กับงาน threat-detection เมื่อเปิด Datadog Cloud Security
 
@@ -44,7 +44,7 @@ export const agentDiagramTh = `flowchart TB
 
 ## Checks กับ integration
 
-**check** คือโค้ดชิ้นเล็ก ๆ (Python ที่มากับ Agent) ที่รู้วิธีคุยกับ service หนึ่งตัวโดยเฉพาะ — Postgres, Redis, NGINX, Kafka และอีกหลายร้อยตัว — แล้วแปลง state ข้างในของมันเป็น metric ของ Datadog แต่ละ check ถูกตั้งค่าผ่านไฟล์ YAML ใต้ directory `conf.d/` ของ Agent ในโฟลเดอร์ที่ตั้งชื่อตาม integration นั้น
+**check** คือโค้ดชิ้นเล็ก ๆ (Python ที่มากับ Agent) ที่รู้วิธีคุยกับ service หนึ่งตัวโดยเฉพาะ — Postgres, Redis, NGINX, Kafka และอีกหลายร้อยตัว — แล้วแปลง state ข้างในของตัวเองเป็น metric ของ Datadog แต่ละ check ถูกตั้งค่าผ่านไฟล์ YAML ใต้ directory `conf.d/` ของ Agent ในโฟลเดอร์ที่ตั้งชื่อตาม integration นั้น
 
 ```yaml
 # conf.d/postgres.d/conf.yaml
@@ -72,11 +72,11 @@ instances:
       - "service:orders-cache"
 ```
 
-พอไฟล์นั้นมีอยู่แล้ว Agent restart (หรือ pick up การเปลี่ยนแปลง) มันจะเริ่มรัน check `postgres` หรือ `redis` ตามตารางเวลา และส่ง metric อย่าง `postgresql.connections` หรือ `redis.mem.used` — ที่ถูก tag ตามที่ใส่ไว้ใต้ `tags` บวกกับ host tag ของ Agent เอง
+พอไฟล์นั้นมีอยู่แล้ว Agent restart (หรือ pick up การเปลี่ยนแปลง) จะเริ่มรัน check `postgres` หรือ `redis` ตามตารางเวลา และส่ง metric อย่าง `postgresql.connections` หรือ `redis.mem.used` — ที่ถูก tag ตามที่ใส่ไว้ใต้ `tags` บวกกับ host tag ของ Agent เอง
 
 ## Autodiscovery
 
-ไฟล์ `conf.d/` แบบ static ใช้ได้ดีกับ host ที่รัน service เดิมตลอดไป แต่มันพังทันทีที่ service เป็น container ที่ start, stop และ reschedule ตลอดเวลา — คุณเขียน config file มือให้ Postgres pod ที่อาจจะไม่มีอยู่แล้วในอีกห้านาทีไม่ได้ **Autodiscovery** แก้ปัญหานี้ — Agent เฝ้าดู container/pod แล้วจับคู่กับ **config template** ที่แปะเป็น annotation สร้าง (และรื้อ) check config ให้เองอัตโนมัติตามที่ container ที่ match เข้ามาหรือหายไป
+ไฟล์ `conf.d/` แบบ static ใช้ได้ดีกับ host ที่รัน service เดิมตลอดไป แต่พังทันทีที่ service เป็น container ที่ start, stop และ reschedule ตลอดเวลา — คุณเขียน config file มือให้ Postgres pod ที่อาจจะไม่มีอยู่แล้วในอีกห้านาทีไม่ได้ **Autodiscovery** แก้ปัญหานี้ — Agent เฝ้าดู container/pod แล้วจับคู่กับ **config template** ที่แปะเป็น annotation สร้าง (และรื้อ) check config ให้เองอัตโนมัติตามที่ container ที่ match เข้ามาหรือหายไป
 
 นี่คือสิ่งที่ annotation block แบบนี้กำลังทำอยู่บน Kubernetes Service ที่อยู่หน้า NGINX
 
@@ -108,7 +108,7 @@ Agent อ่าน annotation `ad.datadoghq.com/<container-name>.checks` แท�
 
 ## วิธีติดตั้งกับการ troubleshoot
 
-Agent มีให้ติดตั้งหลายทาง เลือกตามที่ที่มันต้องรัน
+Agent มีให้ติดตั้งหลายทาง เลือกตามที่ที่ต้องรัน
 
 ```bash
 # Host package install (Debian/Ubuntu, one-line installer)
@@ -127,7 +127,7 @@ helm install datadog-agent datadog/datadog \
   --set datadog.apiKey=<API_KEY> --set datadog.site="datadoghq.com"
 ```
 
-พอมันรันอยู่แล้ว มีสองคำสั่งที่ตอบคำถาม "Agent ทำงานอยู่หรือเปล่า" ได้เกือบทุกครั้ง
+พอ Agent รันอยู่แล้ว มีสองคำสั่งที่ตอบคำถาม "Agent ทำงานอยู่หรือเปล่า" ได้เกือบทุกครั้ง
 
 ```bash
 # Full status: which checks ran, when, any errors, each component process's health
@@ -138,7 +138,7 @@ sudo datadog-agent status
 sudo datadog-agent check postgres
 ```
 
-`status` คือคำสั่งแรกที่ควรรันเมื่อ metric ดูเหมือนหายไป — มันโชว์เวลารันล่าสุดของทุก check และ error ในการเก็บข้อมูล `check <name>` คือเครื่องมือสำหรับวน iterate config ของ integration ตัวเดียวโดยไม่ต้องรอรอบถัดไป
+`status` คือคำสั่งแรกที่ควรรันเมื่อ metric ดูเหมือนหายไป — เพราะโชว์เวลารันล่าสุดของทุก check และ error ในการเก็บข้อมูล `check <name>` คือเครื่องมือสำหรับวน iterate config ของ integration ตัวเดียวโดยไม่ต้องรอรอบถัดไป
 
 <Callout title="The one-line takeaway">
 Agent จริง ๆ แล้วคือ **process ที่ทำงานร่วมกันหลายตัว** — core Agent สำหรับ host metric กับ check, Trace Agent สำหรับ span, Process Agent สำหรับ process แบบ live — และ **checks/integration** (static ใน `conf.d/` หรือ dynamic ผ่าน annotation ของ **Autodiscovery** บน container) คือสิ่งที่ตัดสินว่าอะไรถูกเก็บจริง `datadog-agent status` กับ `datadog-agent check <name>` คือคำสั่ง debug สองตัวแรกของคุณ
@@ -163,10 +163,10 @@ export const quizAgentTh = [
   {
     q: 'ทำไม Autodiscovery ถึงมีอยู่ แทนที่จะเขียนไฟล์ conf.d/ มือให้ทุก service',
     options: [
-      'มันจำเป็นสำหรับการติดตั้งแบบ host-only ที่ไม่มี container',
-      'มันทำให้ check config ถูก generate และรื้อออกอัตโนมัติตามที่ container/pod start, stop และ reschedule',
-      'มันแทนที่ความจำเป็นของ API key',
-      'มันใช้ได้กับ integration nginx เท่านั้น'
+      'จำเป็นสำหรับการติดตั้งแบบ host-only ที่ไม่มี container',
+      'ทำให้ check config ถูก generate และรื้อออกอัตโนมัติตามที่ container/pod start, stop และ reschedule',
+      'แทนที่ความจำเป็นของ API key',
+      'ใช้ได้กับ integration nginx เท่านั้น'
     ],
     answer: 1
   },
