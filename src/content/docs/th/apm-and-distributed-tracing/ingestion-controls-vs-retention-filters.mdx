@@ -20,7 +20,8 @@ import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 
 ```yaml
 # Tracer-side config — controls what even reaches Datadog at all
-DD_TRACE_SAMPLE_RATE=0.2   # sample 20% of traces at ingestion time
+# DD_TRACE_SAMPLE_RATE is deprecated; use DD_TRACE_SAMPLING_RULES instead
+DD_TRACE_SAMPLING_RULES='[{"sample_rate": 0.2}]'   # sample 20% of traces at ingestion time
 ```
 
 Agent-side ก็มี ingestion control ของตัวเองเช่นกัน (sampling rule ที่ apply ตอน trace ผ่าน Agent ก่อนส่งขึ้นไป) แต่ concept เหมือนกันไม่ว่าจะตัดสินใจตรงไหน — **อะไรก็ตามที่ไม่ถูก ingest จะไม่มีทางไปถึง Datadog เลย** จบแค่นั้น ไม่มีขั้นตอนไหนทีหลังที่จะกู้ trace ที่ชั้นนี้ทิ้งไปแล้วกลับมาได้

@@ -39,7 +39,7 @@ import ProgressTracker from '../../../../components/ProgressTracker.tsx';
 
 ## จัดการทั้งหมดเป็น code review เหมือน code
 
-- **monitor, dashboard และ SLO เขียนเป็น Terraform resource** — `datadog_monitor`, `datadog_dashboard_v2`, `datadog_service_level_objective` — แทนที่จะคลิกประกอบเอง ตามที่คุยไปก่อนหน้าในโมดูลนี้
+- **monitor, dashboard และ SLO เขียนเป็น Terraform resource** — `datadog_monitor`, `datadog_dashboard`, `datadog_service_level_objective` — แทนที่จะคลิกประกอบเอง ตามที่คุยไปก่อนหน้าในโมดูลนี้
 - **`terraform plan` รันพร้อม query validation เปิดอยู่** เป็นส่วนหนึ่งของ pull request review ปกติ ก่อนที่ monitor หรือ dashboard change จะไปถึง production — bar review เดียวกับ infrastructure change อื่น ๆ
 - **RBAC ถูกเช็ค** ยืนยันว่ามีแค่ role ที่ตั้งใจถือ permission อย่าง `logs_modify_indexes` กับ `logs_write_exclusion_filters` ส่วนคนอื่นมีแค่ read/query access ปกติ
 - **cost alert monitor ของ Cloud Cost Management มีอยู่จริง** สำหรับ service หรือ account ที่ rollout นี้กระทบ เพื่อให้ cost spike ได้รับ alerting treatment แบบเดียวกับ latency spike ไม่ใช่มาเซอร์ไพรส์ตอนสิ้นเดือน

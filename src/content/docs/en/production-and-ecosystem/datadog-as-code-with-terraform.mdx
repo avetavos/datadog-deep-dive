@@ -51,12 +51,12 @@ resource "datadog_monitor" "high_cpu" {
 
 ## Dashboards as code: `ordered` vs `free` layout
 
-The dashboard lesson from the Infrastructure & Metrics module covered named queries, formulas, and template variables from the UI's point of view. The same widget model shows up in Terraform via `datadog_dashboard_v2`, and the one extra decision you make in code is the `layout_type`.
+The dashboard lesson from the Infrastructure & Metrics module covered named queries, formulas, and template variables from the UI's point of view. The same widget model shows up in Terraform via `datadog_dashboard`, and the one extra decision you make in code is the `layout_type`.
 
 With `layout_type = "ordered"`, widgets simply stack top to bottom in the order you declare them — the simplest option, and a good default:
 
 ```terraform
-resource "datadog_dashboard_v2" "checkout_overview" {
+resource "datadog_dashboard" "checkout_overview" {
   title       = "Checkout Service Overview"
   layout_type = "ordered"
 
@@ -78,7 +78,7 @@ resource "datadog_dashboard_v2" "checkout_overview" {
 With `layout_type = "free"`, every widget needs its own `widget_layout` block, giving you exact pixel-grid placement with `x`, `y`, `width`, and `height`:
 
 ```terraform
-resource "datadog_dashboard_v2" "checkout_overview_free" {
+resource "datadog_dashboard" "checkout_overview_free" {
   title       = "Checkout Service Overview (free layout)"
   layout_type = "free"
 
@@ -108,7 +108,7 @@ resource "datadog_dashboard_v2" "checkout_overview_free" {
 <Mermaid title="From HCL to live Datadog resources" code={terraformDiagram} />
 
 export const terraformDiagram = `flowchart LR
-  A[Write datadog_monitor / datadog_dashboard_v2 in HCL] --> B[terraform plan]
+  A[Write datadog_monitor / datadog_dashboard in HCL] --> B[terraform plan]
   B --> C{Query validation}
   C -->|valid, or validate = false| D[Pull request review]
   C -->|invalid| E[Plan fails: fix query]
@@ -117,7 +117,7 @@ export const terraformDiagram = `flowchart LR
   G --> H[Reused across prod, staging, new services via variables]`
 
 <Callout title="The one-line takeaway">
-The Terraform Datadog provider turns monitors, dashboards, and SLOs into versioned, reviewable code — but remember the `query` field in `datadog_monitor` uses the API query syntax (not the UI query builder's), `terraform plan` validates it by default, and a `datadog_dashboard_v2` needs explicit `widget_layout` blocks only when `layout_type = "free"`.
+The Terraform Datadog provider turns monitors, dashboards, and SLOs into versioned, reviewable code — but remember the `query` field in `datadog_monitor` uses the API query syntax (not the UI query builder's), `terraform plan` validates it by default, and a `datadog_dashboard` needs explicit `widget_layout` blocks only when `layout_type = "free"`.
 </Callout>
 
 export const quizTerraform = [
@@ -152,7 +152,7 @@ export const quizTerraform = [
     answer: 1,
   },
   {
-    q: 'In a `datadog_dashboard_v2` resource, when do you need an explicit `widget_layout` block with x/y/width/height for each widget?',
+    q: 'In a `datadog_dashboard` resource, when do you need an explicit `widget_layout` block with x/y/width/height for each widget?',
     options: [
       'Always, regardless of layout_type',
       'Only when `layout_type = "ordered"`',

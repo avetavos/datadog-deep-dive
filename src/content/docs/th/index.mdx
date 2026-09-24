@@ -58,3 +58,7 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
     เส้นทางข้อมูลของ Agent, log pipeline ตั้งแต่ intake ถึง index, การแยก ingestion/retention filter ของ APM และโมเดล error budget ของ SLO เป็นไดอะแกรม Mermaid ที่รองรับธีม สองภาษา (English / ไทย) พร้อมบันทึกความคืบหน้า quiz
   </Card>
 </CardGrid>
+
+## ตรวจสอบกับเวอร์ชันจริงเมื่อ (2026-09-24)
+
+Agent 7.6x/7.7x · dd-trace (Node.js) 6.16.0 · ddtrace (Python) 4.15.2 · `@datadog/browser-rum` 7.x · Terraform provider `datadog` 4.22.0 (`datadog_monitor`, `datadog_dashboard`, `datadog_service_level_objective`) · `datadog-agent:7` (Docker/Helm) · Autodiscovery annotation ของ Kubernetes รูปแบบ `ad.datadoghq.com/<container>.checks` v2 ปัจจุบัน · `DD_TRACE_SAMPLING_RULES` (ตัวแทนปัจจุบันของ `DD_TRACE_SAMPLE_RATE` ที่ deprecated แล้ว)

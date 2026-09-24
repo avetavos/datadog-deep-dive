@@ -58,3 +58,7 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
     The Agent's data paths, the log pipeline from intake to index, APM's ingestion/retention split, and the SLO error-budget model as theme-aware Mermaid diagrams. Bilingual (English / ไทย) with saved quiz progress.
   </Card>
 </CardGrid>
+
+## Verified against (2026-09-24)
+
+Agent 7.6x/7.7x · dd-trace (Node.js) 6.16.0 · ddtrace (Python) 4.15.2 · `@datadog/browser-rum` 7.x · Terraform `datadog` provider 4.22.0 (`datadog_monitor`, `datadog_dashboard`, `datadog_service_level_objective`) · `datadog-agent:7` (Docker/Helm) · Kubernetes Autodiscovery annotations in the current `ad.datadoghq.com/<container>.checks` v2 format · `DD_TRACE_SAMPLING_RULES` (the current, non-deprecated replacement for `DD_TRACE_SAMPLE_RATE`).

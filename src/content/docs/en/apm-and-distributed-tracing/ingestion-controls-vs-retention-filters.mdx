@@ -20,7 +20,8 @@ This layer lives in the **tracer** (and sometimes the **Agent**), and it answers
 
 ```yaml
 # Tracer-side config — controls what even reaches Datadog at all
-DD_TRACE_SAMPLE_RATE=0.2   # sample 20% of traces at ingestion time
+# DD_TRACE_SAMPLE_RATE is deprecated; use DD_TRACE_SAMPLING_RULES instead
+DD_TRACE_SAMPLING_RULES='[{"sample_rate": 0.2}]'   # sample 20% of traces at ingestion time
 ```
 
 Agent-side ingestion controls exist too (sampling rules applied as traces pass through the Agent before upstream submission), but the concept is the same regardless of exactly where the decision is made: **anything not ingested never reaches Datadog at all**, full stop. There is no later step that can recover a trace this layer dropped.

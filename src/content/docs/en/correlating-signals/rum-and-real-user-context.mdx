@@ -33,6 +33,7 @@ On its own, a RUM action or view is frontend-only — it tells you a user clicke
 window.DD_RUM.init({
   applicationId: '<RUM_APP_ID>',
   clientToken: '<RUM_CLIENT_TOKEN>',
+  site: '<DATADOG_SITE>',
   service: 'checkout-web',
   allowedTracingUrls: [
     (url) => url.startsWith('https://api.example.com')

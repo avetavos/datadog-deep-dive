@@ -39,7 +39,7 @@ Going to production with Datadog is a checklist, not a single switch, and every 
 
 ## Manage it all as code, review it like code
 
-- **Monitors, dashboards, and SLOs are expressed as Terraform resources** — `datadog_monitor`, `datadog_dashboard_v2`, `datadog_service_level_objective` — rather than clicked together by hand, as covered earlier in this module.
+- **Monitors, dashboards, and SLOs are expressed as Terraform resources** — `datadog_monitor`, `datadog_dashboard`, `datadog_service_level_objective` — rather than clicked together by hand, as covered earlier in this module.
 - **`terraform plan` runs with query validation on**, as part of ordinary pull request review, before any monitor or dashboard change reaches production — the same review bar as any other infrastructure change.
 - **RBAC is checked**, confirming only the intended roles hold permissions like `logs_modify_indexes` and `logs_write_exclusion_filters`, while everyone else keeps plain read/query access.
 - **A Cloud Cost Management cost alert monitor exists** for the services or accounts this rollout affects, so a cost spike gets the same alerting treatment as a latency spike, not a surprise at the end of the month.
